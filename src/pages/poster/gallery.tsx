@@ -56,7 +56,7 @@ export default function PosterGallery() {
       return;
     }
     setVotedPosts(prev => new Set(prev).add(posterId));
-    supabase.rpc('vote_fan_poster', { p_poster_id: posterId }).then(() => null);
+    supabase.rpc('vote_poster', { p_poster_id: posterId }).then(() => null);
     toast.success(lang === 'ar' ? 'تم التصويت! +10 نقاط' : 'Voted! +10 points');
   };
 
