@@ -243,13 +243,25 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Create arena post
+-- Create arena post (rate-limited: max 10 posts per minute per user)
 CREATE OR REPLACE FUNCTION create_arena_post(p_post_type TEXT, p_content TEXT, p_media_url TEXT DEFAULT NULL, p_match_id UUID DEFAULT NULL, p_team_id UUID DEFAULT NULL, p_country TEXT DEFAULT NULL) RETURNS JSONB AS $$
 DECLARE
-  v_user_id UUID;
-  v_post_id UUID;
+  v_user_id   UUID;
+  v_post_id   UUID;
+  v_recent    INT;
 BEGIN
   v_user_id := auth.uid();
+  IF v_user_id IS NULL THEN
+    RETURN jsonb_build_object('error', 'Not authenticated');
+  END IF;
+  IF char_length(p_content) > 2000 THEN
+    RETURN jsonb_build_object('error', 'Content too long (max 2000 characters)');
+  END IF;
+  SELECT COUNT(*) INTO v_recent FROM arena_posts
+    WHERE user_id = v_user_id AND created_at > NOW() - INTERVAL '1 minute';
+  IF v_recent >= 10 THEN
+    RETURN jsonb_build_object('error', 'Rate limit: max 10 posts per minute');
+  END IF;
   INSERT INTO arena_posts (user_id, post_type, content, media_url, match_id, team_id, country)
   VALUES (v_user_id, p_post_type, p_content, p_media_url, p_match_id, p_team_id, p_country)
   RETURNING id INTO v_post_id;
@@ -258,13 +270,25 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Create arena comment
+-- Create arena comment (rate-limited: max 30 comments per minute per user)
 CREATE OR REPLACE FUNCTION create_arena_comment(p_post_id UUID, p_content TEXT, p_parent_id UUID DEFAULT NULL) RETURNS JSONB AS $$
 DECLARE
-  v_user_id UUID;
+  v_user_id    UUID;
   v_comment_id UUID;
+  v_recent     INT;
 BEGIN
   v_user_id := auth.uid();
+  IF v_user_id IS NULL THEN
+    RETURN jsonb_build_object('error', 'Not authenticated');
+  END IF;
+  IF char_length(p_content) > 1000 THEN
+    RETURN jsonb_build_object('error', 'Comment too long (max 1000 characters)');
+  END IF;
+  SELECT COUNT(*) INTO v_recent FROM arena_comments
+    WHERE user_id = v_user_id AND created_at > NOW() - INTERVAL '1 minute';
+  IF v_recent >= 30 THEN
+    RETURN jsonb_build_object('error', 'Rate limit: max 30 comments per minute');
+  END IF;
   INSERT INTO arena_comments (post_id, user_id, content, parent_id)
   VALUES (p_post_id, v_user_id, p_content, p_parent_id)
   RETURNING id INTO v_comment_id;

@@ -3,6 +3,7 @@
 import { cleanupOutdatedCaches, precacheAndRoute } from 'workbox-precaching';
 import { registerRoute } from 'workbox-routing';
 import { CacheFirst, NetworkFirst, StaleWhileRevalidate } from 'workbox-strategies';
+import { ExpirationPlugin } from 'workbox-expiration';
 
 declare const self: ServiceWorkerGlobalScope;
 
@@ -20,14 +21,16 @@ registerRoute(
   new NetworkFirst({
     cacheName: 'supabase-api-cache',
     networkTimeoutSeconds: 10,
+    plugins: [new ExpirationPlugin({ maxEntries: 50, maxAgeSeconds: 60 })],
   })
 );
 
-// Runtime caching for Supabase Storage (CacheFirst)
+// Runtime caching for Supabase Storage (CacheFirst with expiration)
 registerRoute(
   /^https?:\/\/.*\.supabase\.co\/storage\/v1\/.*/i,
   new CacheFirst({
     cacheName: 'supabase-storage-cache',
+    plugins: [new ExpirationPlugin({ maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 * 30 })],
   })
 );
 
@@ -36,6 +39,7 @@ registerRoute(
   /^https?:\/\/fonts\.(googleapis|gstatic)\.com\/.*/i,
   new StaleWhileRevalidate({
     cacheName: 'google-fonts-cache',
+    plugins: [new ExpirationPlugin({ maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 30 })],
   })
 );
 
@@ -44,6 +48,7 @@ registerRoute(
   /\.(?:png|jpg|jpeg|svg|gif|webp|ico)$/i,
   new CacheFirst({
     cacheName: 'image-cache',
+    plugins: [new ExpirationPlugin({ maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 * 30 })],
   })
 );
 
@@ -107,27 +112,27 @@ self.addEventListener('fetch', (event: FetchEvent) => {
   );
 });
 
-// Activate event - clean old caches
+// Activate event — clean old caches.
+// Uses startsWith('workbox-precache') to match the versioned cache name
+// that Workbox generates (e.g. workbox-precache-v2-<revision>).
 self.addEventListener('activate', (event: ExtendableEvent) => {
-  const cacheWhitelist = [
+  const knownCaches = new Set([
     'supabase-api-cache',
     'supabase-storage-cache',
     'google-fonts-cache',
     'image-cache',
-    'workbox-precache',
-  ];
+  ]);
 
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
+    caches.keys().then((cacheNames) =>
+      Promise.all(
         cacheNames.map((cacheName) => {
-          if (!cacheWhitelist.includes(cacheName)) {
+          if (!knownCaches.has(cacheName) && !cacheName.startsWith('workbox-precache')) {
             return caches.delete(cacheName);
           }
           return Promise.resolve(false);
         })
-      );
-    })
+      )
+    )
   );
 });
-

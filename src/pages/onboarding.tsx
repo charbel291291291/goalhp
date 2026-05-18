@@ -50,7 +50,7 @@ export default function Onboarding() {
           country,
           region: country === 'Lebanon' ? region : null,
           language,
-        } as any)
+        })
         .eq('id', profile.id);
 
       if (error) throw error;
@@ -58,8 +58,8 @@ export default function Onboarding() {
       await refreshProfile();
       toast.success('Setup completed');
       navigate('/home');
-    } catch (err: any) {
-      toast.error(err?.message || 'Could not save onboarding');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Could not save onboarding');
       navigate('/home');
     } finally {
       setSaving(false);

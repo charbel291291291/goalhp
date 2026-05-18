@@ -15,27 +15,45 @@ function navigate(path: string) {
   window.dispatchEvent(new PopStateEvent('popstate'));
 }
 
+const USERNAME_RE = /^[a-zA-Z0-9_]{2,30}$/;
+
+function validateUsername(value: string): string | null {
+  if (!value) return 'Username is required';
+  if (value.length < 2) return 'Username must be at least 2 characters';
+  if (value.length > 30) return 'Username must be 30 characters or fewer';
+  if (!USERNAME_RE.test(value)) return 'Username may only contain letters, numbers and underscores';
+  return null;
+}
+
 export default function Signup() {
   const { t, i18n } = useTranslation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
+  const [usernameError, setUsernameError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const handleUsernameChange = (value: string) => {
+    setUsername(value);
+    setUsernameError(validateUsername(value));
+  };
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
+    const err = validateUsername(username);
+    if (err) {
+      setUsernameError(err);
+      return;
+    }
     setLoading(true);
     try {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: {
-          data: { username },
-        },
+        options: { data: { username } },
       });
       if (error) throw error;
       if (data.user) {
-        // Create profile
         await supabase.from('profiles').insert({
           id: data.user.id,
           username,
@@ -71,10 +89,17 @@ export default function Signup() {
                 type="text"
                 placeholder={t('auth.username')}
                 value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                onChange={(e) => handleUsernameChange(e.target.value)}
                 required
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:border-electric transition-colors"
+                minLength={2}
+                maxLength={30}
+                className={`w-full bg-white/5 border rounded-xl px-4 py-3 text-white placeholder-white/30 focus:outline-none transition-colors ${
+                  usernameError ? 'border-red-500 focus:border-red-400' : 'border-white/10 focus:border-electric'
+                }`}
               />
+              {usernameError && (
+                <p className="text-xs text-red-400 mt-1 px-1">{usernameError}</p>
+              )}
             </div>
             <div>
               <input
@@ -97,7 +122,12 @@ export default function Signup() {
                 className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:border-electric transition-colors"
               />
             </div>
-            <Button variant="primary" size="lg" className="w-full" disabled={loading}>
+            <Button
+              variant="primary"
+              size="lg"
+              className="w-full"
+              disabled={loading || !!usernameError}
+            >
               {loading ? '...' : t('auth.signup')}
             </Button>
           </form>
