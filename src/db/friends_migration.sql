@@ -162,7 +162,7 @@ BEGIN
 END;
 $$;
 
--- RPC: Send battle invite (creates battle + invite)
+-- RPC: Send battle invite (creates battle + invite, requires accepted friendship)
 CREATE OR REPLACE FUNCTION send_battle_invite(p_to_user_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql SECURITY DEFINER
@@ -170,7 +170,19 @@ AS $$
 DECLARE
   battle_id UUID;
   invite_id UUID;
+  friendship_id UUID;
 BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN jsonb_build_object('error', 'Not authenticated');
+  END IF;
+  -- Require an accepted friendship before creating a battle invite
+  SELECT id INTO friendship_id FROM friends
+    WHERE ((requester_id = auth.uid() AND addressee_id = p_to_user_id)
+        OR (addressee_id = auth.uid() AND requester_id = p_to_user_id))
+      AND status = 'accepted';
+  IF friendship_id IS NULL THEN
+    RETURN jsonb_build_object('error', 'You must be friends to send a battle invite');
+  END IF;
   INSERT INTO quiz_battles (player_one, player_two, mode, status)
     VALUES (auth.uid(), p_to_user_id, 'friend', 'waiting')
     RETURNING id INTO battle_id;

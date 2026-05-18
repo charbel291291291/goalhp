@@ -345,3 +345,114 @@ BEGIN
   RETURN jsonb_build_object('success', TRUE, 'comment_id', v_comment_id);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================================
+-- FRIENDS SECTION FIXES
+-- ============================================================
+
+-- HIGH-4: send_battle_invite — require accepted friendship before creating invite
+CREATE OR REPLACE FUNCTION send_battle_invite(p_to_user_id UUID)
+RETURNS JSONB
+LANGUAGE plpgsql SECURITY DEFINER
+AS $$
+DECLARE
+  battle_id     UUID;
+  invite_id     UUID;
+  friendship_id UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN jsonb_build_object('error', 'Not authenticated');
+  END IF;
+  SELECT id INTO friendship_id FROM friends
+    WHERE ((requester_id = auth.uid() AND addressee_id = p_to_user_id)
+        OR (addressee_id = auth.uid() AND requester_id = p_to_user_id))
+      AND status = 'accepted';
+  IF friendship_id IS NULL THEN
+    RETURN jsonb_build_object('error', 'You must be friends to send a battle invite');
+  END IF;
+  INSERT INTO quiz_battles (player_one, player_two, mode, status)
+    VALUES (auth.uid(), p_to_user_id, 'friend', 'waiting')
+    RETURNING id INTO battle_id;
+  INSERT INTO battle_invites (from_user_id, to_user_id, battle_id, status)
+    VALUES (auth.uid(), p_to_user_id, battle_id, 'pending')
+    RETURNING id INTO invite_id;
+  RETURN jsonb_build_object('success', true, 'battle_id', battle_id, 'invite_id', invite_id);
+END;
+$$;
+
+-- MEDIUM-1: Enforce 500-character limit on friend_messages
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'friend_messages_length_check'
+      AND conrelid = 'friend_messages'::regclass
+  ) THEN
+    ALTER TABLE friend_messages
+      ADD CONSTRAINT friend_messages_length_check
+      CHECK (char_length(message) <= 500);
+  END IF;
+END;
+$$;
+
+-- ============================================================
+-- PROFILE SECTION FIXES
+-- ============================================================
+
+-- HIGH-1: Block role escalation via direct PostgREST PATCH
+-- The profiles UPDATE RLS policy allows users to update their own row
+-- but has no column restriction — without this trigger a user can
+-- PATCH {"role":"admin"} and succeed.
+CREATE OR REPLACE FUNCTION prevent_role_escalation()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  IF NEW.role IS DISTINCT FROM OLD.role THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'
+    ) THEN
+      RAISE EXCEPTION 'Insufficient privileges to change role';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_prevent_role_escalation ON profiles;
+CREATE TRIGGER trg_prevent_role_escalation
+  BEFORE UPDATE ON profiles
+  FOR EACH ROW EXECUTE FUNCTION prevent_role_escalation();
+
+-- MEDIUM-2: record_daily_visit — server-side streak tracking
+-- Adds last_visit_date column if missing, then atomically increments
+-- or resets the streak based on whether the visit is consecutive.
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS last_visit_date DATE;
+
+CREATE OR REPLACE FUNCTION record_daily_visit()
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  v_user_id   UUID;
+  v_last_date DATE;
+  v_today     DATE := CURRENT_DATE;
+BEGIN
+  v_user_id := auth.uid();
+  IF v_user_id IS NULL THEN RETURN; END IF;
+
+  SELECT last_visit_date INTO v_last_date FROM profiles WHERE id = v_user_id;
+
+  IF v_last_date = v_today THEN
+    RETURN; -- Already recorded today
+  END IF;
+
+  IF v_last_date = v_today - 1 THEN
+    UPDATE profiles
+      SET streak = streak + 1, last_visit_date = v_today
+      WHERE id = v_user_id;
+  ELSE
+    UPDATE profiles
+      SET streak = 1, last_visit_date = v_today
+      WHERE id = v_user_id;
+  END IF;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION record_daily_visit TO authenticated;

@@ -13,7 +13,7 @@ export default function FriendChat() {
   const { profile } = useAuth();
   const params = new URLSearchParams(window.location.search);
   const friendId = params.get('friend_id');
-  const friendName = params.get('name') || 'Chat';
+  const friendName = (params.get('name') || 'Chat').slice(0, 50);
   const { messages, loading, sending, sendMessage } = useFriendChat(friendId);
   const [input, setInput] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -86,6 +86,7 @@ export default function FriendChat() {
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+            maxLength={500}
             placeholder="Type a message..."
             className="flex-1 px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-white/40 focus:outline-none focus:border-[#0f8cff] text-sm"
           />

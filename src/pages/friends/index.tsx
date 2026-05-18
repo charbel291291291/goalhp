@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../store/useAuth';
@@ -22,6 +22,7 @@ export default function FriendsPage() {
   const [searching, setSearching] = useState(false);
   const [tab, setTab] = useState<'friends' | 'requests' | 'search'>('friends');
   const [challengingId, setChallengingId] = useState<string | null>(null);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Listen for incoming battle invites via Realtime
   useEffect(() => {
@@ -30,7 +31,14 @@ export default function FriendsPage() {
       config: { broadcast: { self: false } },
     });
     channel.on('broadcast', { event: 'challenge' }, async (payload) => {
-      const { from_username, invite_id } = payload.payload;
+      const { from_username, invite_id } = payload.payload as { from_username: string; invite_id: string };
+
+      // Verify the invite actually exists in the DB — prevents spoofed broadcasts
+      const { data: pendingInvites } = await supabase.rpc('get_pending_invites');
+      const validInvite = (pendingInvites as Array<{ invite_id: string }> | null)
+        ?.find(inv => inv.invite_id === invite_id);
+      if (!validInvite) return;
+
       friendsHook.refresh();
       const accepted = await new Promise<boolean>((resolve) => {
         toast(
@@ -73,20 +81,24 @@ export default function FriendsPage() {
     return () => { supabase.removeChannel(channel); };
   }, [profile]);
 
-  const handleSearch = async (q: string) => {
+  const handleSearch = (q: string) => {
     setSearchQuery(q);
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     if (!q.trim()) { setSearchResults([]); return; }
-    setSearching(true);
-    const results = await friendsHook.searchUsers(q);
-    setSearchResults(results);
-    setSearching(false);
+    searchDebounceRef.current = setTimeout(async () => {
+      setSearching(true);
+      const results = await friendsHook.searchUsers(q);
+      setSearchResults(results);
+      setSearching(false);
+    }, 300);
   };
 
   const handleChallenge = async (friend: FriendWithStatus) => {
     setChallengingId(friend.id);
-    const battleId = await friendsHook.sendBattleInvite(friend.id);
+    const result = await friendsHook.sendBattleInvite(friend.id);
     setChallengingId(null);
-    if (battleId) {
+    if (result) {
+      const { battleId, inviteId } = result;
       // Subscribe to friend's channel and notify them
       const channel = supabase.channel(`battle:invite:${friend.id}`, {
         config: { broadcast: { self: false } },
@@ -99,13 +111,12 @@ export default function FriendsPage() {
             from_user_id: profile?.id,
             from_username: profile?.username,
             battle_id: battleId,
-            invite_id: 'pending',
+            invite_id: inviteId,
           },
         });
         supabase.removeChannel(channel);
       });
       toast.success(lang === 'ar' ? 'تم إرسال التحدي!' : 'Challenge sent!');
-      // Navigate to waiting page
       navigate(`/battle/pvp?mode=friend&battle_id=${battleId}`);
     }
   };

@@ -5,6 +5,13 @@ import type { Profile } from '../types';
 
 const INIT_TIMEOUT = 8000;
 
+// Explicit column list — avoids pulling unexpected columns into client state
+const PROFILE_COLUMNS =
+  'id, username, full_name, avatar_url, favorite_team_id, country, region, language, role, points, xp, level, streak, created_at, updated_at';
+
+// Module-level guard so init() is safe to call more than once (React StrictMode)
+let _initStarted = false;
+
 interface AuthState {
   user: User | null;
   profile: Profile | null;
@@ -27,6 +34,9 @@ export const useAuth = create<AuthState>((set, get) => ({
   setProfile: (profile) => set({ profile }),
   setLoading: (loading) => set({ loading }),
   init: async () => {
+    if (_initStarted) return;
+    _initStarted = true;
+
     // Safety timeout: force loading=false after INIT_TIMEOUT ms
     const timer = setTimeout(() => {
       set({ loading: false, initialized: true });
@@ -40,7 +50,7 @@ export const useAuth = create<AuthState>((set, get) => ({
       if (user) {
         const { data } = await supabase
           .from('profiles')
-          .select('*')
+          .select(PROFILE_COLUMNS)
           .eq('id', user.id)
           .single();
         set({ profile: data as Profile | null });
@@ -59,7 +69,7 @@ export const useAuth = create<AuthState>((set, get) => ({
       if (user) {
         const { data } = await supabase
           .from('profiles')
-          .select('*')
+          .select(PROFILE_COLUMNS)
           .eq('id', user.id)
           .single();
         set({ profile: data as Profile | null });
@@ -77,7 +87,7 @@ export const useAuth = create<AuthState>((set, get) => ({
     if (!profile) return;
     const { data } = await supabase
       .from('profiles')
-      .select('*')
+      .select(PROFILE_COLUMNS)
       .eq('id', profile.id)
       .single();
     if (data) set({ profile: data as Profile });

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../store/useAuth';
@@ -16,22 +16,19 @@ function navigate(path: string) {
   window.dispatchEvent(new PopStateEvent('popstate'));
 }
 
+import { supabase } from '../../lib/supabase';
+
+// Module-level flag so the RPC fires at most once per page session
+let _streakRecorded = false;
+
+const USERNAME_RE = /^[a-zA-Z0-9_]{2,30}$/;
+
 function useStreak() {
   const { profile, refreshProfile } = useAuth();
   useEffect(() => {
-    if (!profile) return;
-    const lastVisit = localStorage.getItem('quizgoal_last_visit');
-    const today = new Date().toDateString();
-
-    if (lastVisit !== today) {
-      const yesterday = new Date(Date.now() - 86400000).toDateString();
-      if (lastVisit === yesterday) {
-        localStorage.setItem('quizgoal_last_visit', today);
-      } else if (lastVisit !== today) {
-        localStorage.setItem('quizgoal_last_visit', today);
-      }
-      refreshProfile();
-    }
+    if (!profile || _streakRecorded) return;
+    _streakRecorded = true;
+    supabase.rpc('record_daily_visit').then(() => refreshProfile());
   }, [profile?.id, refreshProfile]);
 }
 
@@ -45,6 +42,8 @@ export default function ProfileIndex() {
   const [uploading, setUploading] = useState(false);
   const [editingUsername, setEditingUsername] = useState(false);
   const [username, setUsername] = useState('');
+  const [usernameError, setUsernameError] = useState('');
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const notifications = usePushNotifications();
 
@@ -68,19 +67,34 @@ export default function ProfileIndex() {
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    // Reset so the same file can be re-selected after an error
+    e.target.value = '';
     if (!file || !profile) return;
     setUploading(true);
     const url = await uploadAvatar.mutate(file, profile.id);
-    if (url) {
-      await refreshProfile();
-    }
+    if (url) await refreshProfile();
     setUploading(false);
   };
 
+  const handleUsernameChange = (val: string) => {
+    setUsername(val);
+    if (!val) { setUsernameError(''); return; }
+    if (!USERNAME_RE.test(val)) {
+      setUsernameError(lang === 'ar' ? '٢-٣٠ حرف: أرقام وحروف وشرطة سفلية فقط' : '2-30 chars: letters, numbers, underscore only');
+    } else {
+      setUsernameError('');
+    }
+  };
+
   const handleUpdateUsername = async () => {
-    if (!username.trim() || !profile) return;
-    const result = await updateProfile.mutate({ username: username.trim() });
-    if (result !== null) { setEditingUsername(false); await refreshProfile(); }
+    const trimmed = username.trim();
+    if (!trimmed || !profile) return;
+    if (!USERNAME_RE.test(trimmed)) {
+      toast.error(lang === 'ar' ? 'اسم مستخدم غير صالح' : 'Invalid username format');
+      return;
+    }
+    const result = await updateProfile.mutate({ username: trimmed });
+    if (result !== null) { setEditingUsername(false); setUsernameError(''); await refreshProfile(); }
   };
 
   const handleToggleNotifications = async () => {
@@ -120,19 +134,37 @@ export default function ProfileIndex() {
                   userTeam?.flag_emoji || '⚽'
                 )}
               </div>
-              <label className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-electric hover:bg-electric-light flex items-center justify-center cursor-pointer text-xs shadow-lg transition-all hover:scale-105">
-                📷
-                <input type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} disabled={uploading} />
-              </label>
+              <button
+                type="button"
+                onClick={() => !uploading && avatarInputRef.current?.click()}
+                disabled={uploading}
+                className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-electric hover:bg-electric-light flex items-center justify-center cursor-pointer text-xs shadow-lg transition-all hover:scale-105 disabled:opacity-60"
+              >
+                {uploading ? '⏳' : '📷'}
+              </button>
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleAvatarUpload}
+              />
             </div>
 
             {editingUsername ? (
-              <div className="flex items-center justify-center gap-2 mb-2">
-                <input value={username} onChange={e => setUsername(e.target.value)}
-                  className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-sm text-white w-32 text-center focus:outline-none focus:border-electric"
-                  placeholder={profile?.username || 'Username'} />
-                <button onClick={handleUpdateUsername} className="text-xs text-neon hover:text-neon-light">✓</button>
-                <button onClick={() => setEditingUsername(false)} className="text-xs text-white/30 hover:text-white/50">✕</button>
+              <div className="mb-2">
+                <div className="flex items-center justify-center gap-2">
+                  <input
+                    value={username}
+                    onChange={e => handleUsernameChange(e.target.value)}
+                    maxLength={30}
+                    className={`bg-white/5 border rounded-lg px-2 py-1 text-sm text-white w-32 text-center focus:outline-none transition-colors ${usernameError ? 'border-red-500' : 'border-white/10 focus:border-electric'}`}
+                    placeholder={profile?.username || 'Username'}
+                  />
+                  <button onClick={handleUpdateUsername} disabled={!!usernameError} className="w-8 h-8 flex items-center justify-center rounded-lg bg-neon/20 text-neon text-base hover:bg-neon/30 transition-all disabled:opacity-30 disabled:cursor-not-allowed">✓</button>
+                  <button onClick={() => { setEditingUsername(false); setUsernameError(''); }} className="w-8 h-8 flex items-center justify-center rounded-lg bg-white/10 text-white/50 text-base hover:bg-white/20 transition-all">✕</button>
+                </div>
+                {usernameError && <p className="text-[10px] text-red-400 mt-1">{usernameError}</p>}
               </div>
             ) : (
               <h2 className="text-lg font-bold cursor-pointer hover:text-electric-light transition-colors" onClick={() => { setUsername(profile?.username || ''); setEditingUsername(true); }}>
