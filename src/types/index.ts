@@ -4,6 +4,7 @@ export interface Profile {
   full_name?: string;
   avatar_url?: string;
   favorite_team_id?: string;
+  flag_emoji?: string;
   country?: string;
   region?: string;
   language: string;

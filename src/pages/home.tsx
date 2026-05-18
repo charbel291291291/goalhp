@@ -1,13 +1,26 @@
+import { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../store/useAuth';
 import { Button } from '../components/common/Button';
 import { allTeams } from '../lib/teams';
 import { formatPoints } from '../lib/utils';
+import { useMatches, useLeaderboard } from '../lib/useData';
 
 function navigate(path: string) {
   window.history.pushState({}, '', path);
   window.dispatchEvent(new PopStateEvent('popstate'));
+}
+
+function formatCountdown(kickoff: string): string {
+  const diff = new Date(kickoff).getTime() - Date.now();
+  if (diff <= 0) return 'LIVE';
+  const d = Math.floor(diff / 86400000);
+  const h = Math.floor((diff % 86400000) / 3600000);
+  const m = Math.floor((diff % 3600000) / 60000);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
 }
 
 function ArenaHome() {
@@ -16,7 +29,27 @@ function ArenaHome() {
   const lang = i18n.language as 'en' | 'ar';
   const userTeam = allTeams.find(t => t.fifa_code === profile?.favorite_team_id);
   const hour = new Date().getHours();
-  const greeting = hour < 12 ? (lang === 'ar' ? 'صباح الخير' : 'Good Morning') : hour < 18 ? (lang === 'ar' ? 'مساء الخير' : 'Good Afternoon') : (lang === 'ar' ? 'مساء الخير' : 'Good Evening');
+  const greeting = hour < 12
+    ? (lang === 'ar' ? 'صباح الخير' : 'Good Morning')
+    : hour < 18
+    ? (lang === 'ar' ? 'مساء الخير' : 'Good Afternoon')
+    : (lang === 'ar' ? 'مساء الخير' : 'Good Evening');
+
+  const { data: matches } = useMatches();
+  const { data: topPlayers } = useLeaderboard(3);
+
+  const nextMatch = useMemo(() => {
+    if (!matches || matches.length === 0) return null;
+    const upcoming = matches
+      .filter(m => new Date(m.kickoff_at) > new Date())
+      .sort((a, b) => new Date(a.kickoff_at).getTime() - new Date(b.kickoff_at).getTime());
+    return upcoming[0] || null;
+  }, [matches]);
+
+  const teamA = nextMatch?.team_a ?? null;
+  const teamB = nextMatch?.team_b ?? null;
+
+  const MEDAL: Record<number, string> = { 0: '🥇', 1: '🥈', 2: '🥉' };
 
   return (
     <>
@@ -70,28 +103,39 @@ function ArenaHome() {
         </motion.div>
       )}
 
+      {/* Next match */}
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="relative z-10">
         <div className="rounded-2xl border border-white/10 bg-[#132042] shadow-[0_4px_24px_rgba(0,0,0,0.3)] p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="text-[10px] uppercase tracking-[0.15em] font-semibold" style={{ color: 'var(--mode-text-secondary)' }}>{t('home.nextMatch')}</div>
-            <div className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ color: 'var(--mode-accent)', background: 'var(--mode-bg-glass)' }}>3d 14h</div>
+            {nextMatch && (
+              <div className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ color: 'var(--mode-accent)', background: 'var(--mode-bg-glass)' }}>
+                {formatCountdown(nextMatch.kickoff_at)}
+              </div>
+            )}
           </div>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 flex-1">
-              <span className="text-2xl">🇧🇷</span>
-              <span className="text-sm font-semibold" style={{ color: 'var(--mode-text)' }}>Brazil</span>
-            </div>
-            <div className="text-center px-3">
-              <div className="text-[10px]" style={{ color: 'var(--mode-text-secondary)' }}>VS</div>
-              <div className="w-8 h-8 rounded-full flex items-center justify-center mx-auto" style={{ background: 'var(--mode-bg-glass)' }}>
-                <span className="text-xs font-bold" style={{ color: 'var(--mode-primary)' }}>⚔</span>
+          {nextMatch && teamA && teamB ? (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 flex-1">
+                <span className="text-2xl">{(teamA as any).flag_emoji || '🏳️'}</span>
+                <span className="text-sm font-semibold" style={{ color: 'var(--mode-text)' }}>{lang === 'ar' ? (teamA as any).name_ar : (teamA as any).name_en}</span>
+              </div>
+              <div className="text-center px-3">
+                <div className="text-[10px]" style={{ color: 'var(--mode-text-secondary)' }}>VS</div>
+                <div className="w-8 h-8 rounded-full flex items-center justify-center mx-auto" style={{ background: 'var(--mode-bg-glass)' }}>
+                  <span className="text-xs font-bold" style={{ color: 'var(--mode-primary)' }}>⚔</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-1 justify-end">
+                <span className="text-sm font-semibold" style={{ color: 'var(--mode-text)' }}>{lang === 'ar' ? (teamB as any).name_ar : (teamB as any).name_en}</span>
+                <span className="text-2xl">{(teamB as any).flag_emoji || '🏳️'}</span>
               </div>
             </div>
-            <div className="flex items-center gap-2 flex-1 justify-end">
-              <span className="text-sm font-semibold" style={{ color: 'var(--mode-text)' }}>Croatia</span>
-              <span className="text-2xl">🇭🇷</span>
+          ) : (
+            <div className="text-center py-2 text-sm text-white/40">
+              {lang === 'ar' ? 'لا توجد مباريات قادمة' : 'No upcoming matches'}
             </div>
-          </div>
+          )}
           <div className="mt-3 pt-3 border-t" style={{ borderColor: 'var(--mode-border)' }}>
             <Button variant="ghost" size="sm" className="w-full text-xs" onClick={() => navigate('/predict')}>
               {lang === 'ar' ? 'توقّع الآن ←' : 'Predict Now →'}
@@ -104,7 +148,7 @@ function ArenaHome() {
         className="relative z-10 grid grid-cols-3 gap-2">
         {[
           { label: t('home.totalPoints'), value: formatPoints(profile?.points || 0), color: 'var(--mode-accent)' },
-          { label: t('home.yourRank'), value: '#42', color: 'var(--mode-primary)' },
+          { label: t('home.yourRank'), value: '—', color: 'var(--mode-primary)' },
           { label: t('common.streak'), value: `${profile?.streak || 0}🔥`, color: 'var(--mode-secondary)' },
         ].map((stat, i) => (
           <div key={i} className="rounded-2xl border border-white/10 bg-[#132042] shadow-[0_4px_24px_rgba(0,0,0,0.3)] text-center py-3 px-2">
@@ -131,8 +175,7 @@ function ArenaHome() {
               <span style={{ color: 'var(--mode-accent)' }} className="font-semibold">0/3</span>
             </div>
             <div className="w-full rounded-full h-1.5 overflow-hidden" style={{ background: 'var(--mode-bg-glass)' }}>
-              <motion.div initial={{ width: 0 }} animate={{ width: '33%' }} transition={{ delay: 0.5, duration: 0.8 }}
-                className="h-full rounded-full bg-gradient-to-r from-gold to-gold-light shadow-[0_0_8px_rgba(245,158,11,0.3)]" />
+              <div className="h-full rounded-full bg-gradient-to-r from-gold to-gold-light shadow-[0_0_8px_rgba(245,158,11,0.3)]" style={{ width: '0%' }} />
             </div>
           </div>
         </div>
@@ -162,6 +205,7 @@ function ArenaHome() {
         </button>
       </motion.div>
 
+      {/* Live leaderboard preview */}
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="relative z-10">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
@@ -173,20 +217,28 @@ function ArenaHome() {
           </button>
         </div>
         <div className="rounded-2xl border border-white/10 bg-[#132042] shadow-[0_4px_24px_rgba(0,0,0,0.3)] p-4">
-          {[
-            { rank: 1, name: '⚡ FootyKing', pts: 12500, flag: '🇧🇷' },
-            { rank: 2, name: '🌟 GoalMaster', pts: 11800, flag: '🇦🇷' },
-            { rank: 3, name: '🔥 PenaltyHero', pts: 10900, flag: '🇫🇷' },
-          ].map((item) => (
-            <div key={item.rank} className="flex items-center gap-3 py-2.5 border-b last:border-0" style={{ borderColor: 'var(--mode-border)' }}>
-              <span className="w-6 text-center text-sm font-bold">
-                {item.rank === 1 ? '🥇' : item.rank === 2 ? '🥈' : item.rank === 3 ? '🥉' : `#${item.rank}`}
-              </span>
-              <span className="text-base">{item.flag}</span>
-              <span className="flex-1 text-sm font-medium truncate" style={{ color: 'var(--mode-text)' }}>{item.name}</span>
-              <span className="text-xs font-semibold" style={{ color: 'var(--mode-accent)' }}>{item.pts.toLocaleString()}</span>
+          {!topPlayers || topPlayers.length === 0 ? (
+            <div className="text-center py-4 text-white/30 text-sm">
+              {lang === 'ar' ? 'لا يوجد لاعبون بعد' : 'No players yet'}
             </div>
-          ))}
+          ) : (
+            topPlayers.map((player, i) => (
+              <div key={player.id} className="flex items-center gap-3 py-2.5 border-b last:border-0" style={{ borderColor: 'var(--mode-border)' }}>
+                <span className="w-6 text-center text-sm font-bold">{MEDAL[i]}</span>
+                {player.avatar_url ? (
+                  <img src={player.avatar_url} alt="" className="w-6 h-6 rounded-full object-cover" />
+                ) : (
+                  <span className="text-base">{player.flag_emoji || '👤'}</span>
+                )}
+                <span className="flex-1 text-sm font-medium truncate" style={{ color: 'var(--mode-text)' }}>
+                  {player.username || 'Anonymous'}
+                </span>
+                <span className="text-xs font-semibold" style={{ color: 'var(--mode-accent)' }}>
+                  {(player.points || 0).toLocaleString()}
+                </span>
+              </div>
+            ))
+          )}
         </div>
       </motion.div>
     </>
