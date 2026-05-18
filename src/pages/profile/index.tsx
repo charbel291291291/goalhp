@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../store/useAuth';
@@ -218,16 +219,18 @@ export default function ProfileIndex() {
         </div>
       </motion.div>
 
-      {/* Username edit — top-anchored sheet, plain DOM (no framer-motion, no backdrop-filter)
-          Android Chrome's visual viewport changes when the soft keyboard opens; flex-centered
-          modals reflow and tap targets shift. Top-anchored fixed position stays stable. */}
-      {editingUsername && (
+      {/* Username edit modal — rendered via portal directly on document.body.
+          The page is wrapped in a framer-motion div with CSS transforms; any
+          position:fixed child is confined to that transformed ancestor instead
+          of the real viewport, so tap coordinates are wrong on mobile.
+          createPortal escapes all ancestors and fixes coordinates. */}
+      {editingUsername && createPortal(
         <>
           <div
-            className="fixed inset-0 z-40 bg-black/70"
+            style={{ position: 'fixed', inset: 0, zIndex: 9998, background: 'rgba(0,0,0,0.75)' }}
             onClick={() => { setEditingUsername(false); setUsernameError(''); }}
           />
-          <div className="fixed left-4 right-4 top-20 z-50 mx-auto max-w-sm">
+          <div style={{ position: 'fixed', left: 16, right: 16, top: 80, zIndex: 9999, maxWidth: 420, margin: '0 auto' }}>
             <div className="bg-[#0f1620] border border-white/10 rounded-3xl p-5 shadow-2xl">
               <h3 className="text-sm font-bold mb-3 text-center">{lang === 'ar' ? 'تعديل اسم المستخدم' : 'Edit Username'}</h3>
               <input
@@ -243,7 +246,7 @@ export default function ProfileIndex() {
               <div className="flex gap-2 mt-3">
                 <button
                   type="button"
-                  onClick={(e) => { e.stopPropagation(); setEditingUsername(false); setUsernameError(''); }}
+                  onClick={() => { setEditingUsername(false); setUsernameError(''); }}
                   className="flex-1 py-3 rounded-2xl bg-white/10 text-white/60 text-sm font-semibold active:bg-white/20"
                 >
                   {lang === 'ar' ? 'إلغاء' : 'Cancel'}
@@ -251,7 +254,7 @@ export default function ProfileIndex() {
                 <button
                   type="button"
                   disabled={!!usernameError || updateProfile.loading}
-                  onClick={(e) => { e.stopPropagation(); handleUpdateUsername(); }}
+                  onClick={handleUpdateUsername}
                   className="flex-1 py-3 rounded-2xl bg-electric text-white text-sm font-semibold active:bg-blue-500 disabled:opacity-40"
                 >
                   {updateProfile.loading ? (lang === 'ar' ? 'جاري الحفظ…' : 'Saving…') : (lang === 'ar' ? 'حفظ' : 'Save')}
@@ -259,7 +262,8 @@ export default function ProfileIndex() {
               </div>
             </div>
           </div>
-        </>
+        </>,
+        document.body
       )}
 
       {/* ── Stats ── */}
@@ -380,27 +384,26 @@ export default function ProfileIndex() {
         </button>
       </motion.div>
 
-      {/* Visually-hidden file input at page root. Using `display:none` (Tailwind `hidden`)
-          can prevent the picker from opening on some Android Chrome versions; clip-path
-          keeps the element in the layout tree so the label's click reliably forwards. */}
-      <input
-        id="avatar-file-input"
-        type="file"
-        accept="image/*"
-        onChange={handleAvatarUpload}
-        disabled={uploading}
-        style={{
-          position: 'absolute',
-          width: 1,
-          height: 1,
-          padding: 0,
-          margin: -1,
-          overflow: 'hidden',
-          clip: 'rect(0, 0, 0, 0)',
-          whiteSpace: 'nowrap',
-          border: 0,
-        }}
-      />
+      {/* File input via portal — same transform-stacking-context issue applies.
+          The label inside the page can still reference it globally by id. */}
+      {createPortal(
+        <input
+          id="avatar-file-input"
+          type="file"
+          accept="image/*"
+          onChange={handleAvatarUpload}
+          disabled={uploading}
+          style={{
+            position: 'fixed',
+            top: -9999,
+            left: -9999,
+            width: 1,
+            height: 1,
+            opacity: 0,
+          }}
+        />,
+        document.body
+      )}
     </div>
   );
 }
