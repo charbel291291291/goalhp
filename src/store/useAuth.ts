@@ -48,6 +48,8 @@ export const useAuth = create<AuthState>((set, get) => ({
       set({ user, initialized: true });
 
       if (user) {
+        // Ensure profile row exists (may be missing if trigger wasn't set up)
+        await supabase.from('profiles').upsert({ id: user.id }, { onConflict: 'id', ignoreDuplicates: true });
         const { data } = await supabase
           .from('profiles')
           .select(PROFILE_COLUMNS)
@@ -67,6 +69,8 @@ export const useAuth = create<AuthState>((set, get) => ({
       const user = session?.user ?? null;
       set({ user });
       if (user) {
+        // Ensure profile row exists
+        await supabase.from('profiles').upsert({ id: user.id }, { onConflict: 'id', ignoreDuplicates: true });
         const { data } = await supabase
           .from('profiles')
           .select(PROFILE_COLUMNS)
