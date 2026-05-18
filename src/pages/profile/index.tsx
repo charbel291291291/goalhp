@@ -150,7 +150,10 @@ export default function ProfileIndex() {
             </div>
 
             {editingUsername ? (
-              <div className="mb-2 space-y-2 px-4">
+              <form
+                className="mb-2 space-y-2 px-4"
+                onSubmit={e => { e.preventDefault(); handleUpdateUsername(); }}
+              >
                 <input
                   value={username}
                   onChange={e => handleUsernameChange(e.target.value)}
@@ -160,24 +163,26 @@ export default function ProfileIndex() {
                   placeholder={profile?.username || 'Username'}
                 />
                 {usernameError && <p className="text-[10px] text-red-400">{usernameError}</p>}
+                {updateProfile.error && <p className="text-[10px] text-red-400">{updateProfile.error}</p>}
                 <div className="flex gap-2">
                   <button
-                    onClick={handleUpdateUsername}
+                    type="submit"
                     disabled={!!usernameError || updateProfile.loading}
                     className="flex-1 py-2 rounded-xl bg-neon/20 text-neon text-sm font-semibold hover:bg-neon/30 transition-all disabled:opacity-30"
                   >
                     {updateProfile.loading ? (lang === 'ar' ? 'جاري الحفظ...' : 'Saving…') : (lang === 'ar' ? 'حفظ' : 'Save')}
                   </button>
                   <button
+                    type="button"
                     onClick={() => { setEditingUsername(false); setUsernameError(''); }}
                     className="px-4 py-2 rounded-xl bg-white/10 text-white/50 text-sm hover:bg-white/20 transition-all"
                   >
                     {lang === 'ar' ? 'إلغاء' : 'Cancel'}
                   </button>
                 </div>
-              </div>
+              </form>
             ) : (
-              <h2 className="text-lg font-bold cursor-pointer hover:text-electric-light transition-colors" onClick={() => { setUsername(profile?.username || ''); setEditingUsername(true); }}>
+              <h2 className="text-lg font-bold cursor-pointer hover:text-electric-light transition-colors" onClick={() => { setUsername(profile?.username || ''); setUsernameError(''); setEditingUsername(true); }}>
                 {profile?.username || 'Player'} <span className="text-xs text-white/20">✏️</span>
               </h2>
             )}
