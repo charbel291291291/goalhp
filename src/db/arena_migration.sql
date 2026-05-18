@@ -178,7 +178,7 @@ CREATE TABLE IF NOT EXISTS user_titles (
 
 ALTER TABLE user_titles ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Anyone can read user titles" ON user_titles FOR SELECT USING (TRUE);
-CREATE POLICY "System can insert titles" ON user_titles FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "System can insert titles" ON user_titles FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
 
 -- ============================================================
 -- 7. ARENA STREAK
@@ -194,7 +194,7 @@ CREATE TABLE IF NOT EXISTS arena_streaks (
 
 ALTER TABLE arena_streaks ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Anyone can read streaks" ON arena_streaks FOR SELECT USING (TRUE);
-CREATE POLICY "System can update streaks" ON arena_streaks FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "System can update streaks" ON arena_streaks FOR ALL USING (auth.uid() IS NOT NULL);
 
 -- ============================================================
 -- 8. STORAGE BUCKETS
@@ -340,11 +340,36 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Report post/comment
+-- Arena content reports table (separate from poster_reports to avoid FK violations)
+CREATE TABLE IF NOT EXISTS arena_reports (
+  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  reporter_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  post_id     UUID REFERENCES arena_posts(id)    ON DELETE SET NULL,
+  comment_id  UUID REFERENCES arena_comments(id) ON DELETE SET NULL,
+  reason      TEXT NOT NULL,
+  created_at  TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT one_target CHECK (
+    (post_id IS NOT NULL AND comment_id IS NULL) OR
+    (post_id IS NULL AND comment_id IS NOT NULL)
+  )
+);
+ALTER TABLE arena_reports ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can submit reports" ON arena_reports
+  FOR INSERT WITH CHECK (auth.uid() = reporter_id);
+CREATE POLICY "Admins can read reports" ON arena_reports
+  FOR SELECT USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'));
+
+-- Report post/comment (writes to arena_reports, not poster_reports)
 CREATE OR REPLACE FUNCTION report_arena_content(p_reason TEXT, p_post_id UUID DEFAULT NULL, p_comment_id UUID DEFAULT NULL) RETURNS JSONB AS $$
 BEGIN
-  INSERT INTO poster_reports (poster_id, reporter_id, reason)
-  VALUES (COALESCE(p_post_id, p_comment_id), auth.uid(), p_reason);
+  IF auth.uid() IS NULL THEN
+    RETURN jsonb_build_object('error', 'Not authenticated');
+  END IF;
+  IF p_post_id IS NULL AND p_comment_id IS NULL THEN
+    RETURN jsonb_build_object('error', 'Must specify post_id or comment_id');
+  END IF;
+  INSERT INTO arena_reports (reporter_id, post_id, comment_id, reason)
+  VALUES (auth.uid(), p_post_id, p_comment_id, p_reason);
   RETURN jsonb_build_object('success', TRUE);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

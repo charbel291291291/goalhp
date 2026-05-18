@@ -51,9 +51,8 @@ CREATE POLICY "Users can respond to invites"
   ON battle_invites FOR UPDATE
   USING (to_user_id = auth.uid());
 
--- Grant anon role permissions
-GRANT SELECT, INSERT, UPDATE ON friends TO anon;
-GRANT SELECT, INSERT, UPDATE ON battle_invites TO anon;
+-- RLS policies already enforce auth.uid() checks; no anon grants needed.
+-- Granting to 'anon' was removed to reduce attack surface.
 
 
 -- RPC: Search users by username
@@ -62,6 +61,10 @@ RETURNS TABLE(id UUID, username TEXT, avatar_url TEXT, is_friend TEXT)
 LANGUAGE plpgsql SECURITY DEFINER
 AS $$
 BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN;
+  END IF;
+
   RETURN QUERY
   SELECT
     p.id,

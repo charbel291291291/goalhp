@@ -161,58 +161,96 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- ============================================================
--- 6. RPC — finish_battle (add participant + status checks)
+-- 6. RPC — finish_battle (FOR UPDATE lock + score-based winner)
 -- ============================================================
+-- FOR UPDATE prevents concurrent double-award race condition.
+-- Winner is determined by score, not by who calls first.
+-- Each player must call finish_battle to receive their own profile points.
 CREATE OR REPLACE FUNCTION finish_battle(p_battle_id UUID) RETURNS JSONB AS $$
 DECLARE
-  v_user_id UUID;
-  v_battle  RECORD;
-  v_score   INT;
-  v_bonus   INT := 0;
+  v_user_id        UUID;
+  v_battle         RECORD;
+  v_my_score       INT;
+  v_opponent_score INT;
+  v_bonus          INT := 0;
+  v_perfect        BOOLEAN := false;
+  v_winner_id      UUID;
+  v_is_winner      BOOLEAN := false;
 BEGIN
   v_user_id := auth.uid();
   IF v_user_id IS NULL THEN
     RETURN jsonb_build_object('error', 'Not authenticated');
   END IF;
 
-  SELECT * INTO v_battle FROM quiz_battles WHERE id = p_battle_id;
+  -- Lock the row to prevent two concurrent callers from both seeing 'playing'
+  -- and double-awarding points. The second caller proceeds after the first commits.
+  SELECT * INTO v_battle FROM quiz_battles WHERE id = p_battle_id FOR UPDATE;
 
   IF NOT FOUND THEN
     RETURN jsonb_build_object('error', 'Battle not found');
   END IF;
 
-  IF v_battle.player_one != v_user_id
-     AND (v_battle.player_two IS NULL OR v_battle.player_two != v_user_id) THEN
+  IF v_battle.player_one = v_user_id THEN
+    v_my_score       := v_battle.player_one_score;
+    v_opponent_score := COALESCE(v_battle.player_two_score, 0);
+  ELSIF v_battle.player_two = v_user_id THEN
+    v_my_score       := v_battle.player_two_score;
+    v_opponent_score := v_battle.player_one_score;
+  ELSE
     RETURN jsonb_build_object('error', 'Not a participant in this battle');
   END IF;
 
-  IF v_battle.status != 'playing' THEN
-    RETURN jsonb_build_object('error', 'Battle is not in playing state');
+  IF v_battle.status NOT IN ('playing', 'finished') THEN
+    RETURN jsonb_build_object('error', 'Battle is not active');
   END IF;
 
-  v_score := CASE WHEN v_battle.player_one = v_user_id
-    THEN v_battle.player_one_score
-    ELSE v_battle.player_two_score
-  END;
+  IF v_my_score >= 700 THEN
+    v_bonus  := v_bonus + 300;
+    v_perfect := true;
+  END IF;
 
-  IF v_score >= 700 THEN v_bonus := v_bonus + 300; END IF;
-  v_bonus := v_bonus + 150;
+  IF v_battle.status = 'playing' THEN
+    -- First caller: determine winner by score, mark battle finished.
+    IF v_my_score > v_opponent_score THEN
+      v_bonus     := v_bonus + 150;
+      v_is_winner := true;
+      v_winner_id := v_user_id;
+    ELSIF v_opponent_score > v_my_score THEN
+      v_winner_id := CASE
+        WHEN v_battle.player_one = v_user_id THEN v_battle.player_two
+        ELSE v_battle.player_one
+      END;
+    END IF;
 
-  UPDATE quiz_battles SET
-    status       = 'finished',
-    winner_id    = v_user_id,
-    player_one_score = CASE WHEN player_one = v_user_id THEN player_one_score + v_bonus ELSE player_one_score END,
-    player_two_score = CASE WHEN player_two = v_user_id THEN player_two_score + v_bonus ELSE player_two_score END,
-    ended_at     = NOW()
-  WHERE id = p_battle_id;
+    UPDATE quiz_battles SET
+      status           = 'finished',
+      winner_id        = v_winner_id,
+      player_one_score = CASE WHEN player_one = v_user_id THEN v_my_score + v_bonus ELSE player_one_score END,
+      player_two_score = CASE WHEN player_two = v_user_id THEN v_my_score + v_bonus ELSE player_two_score END,
+      ended_at         = NOW()
+    WHERE id = p_battle_id;
+  ELSE
+    -- Second caller: battle already finished by the other player.
+    -- Still award this player's profile points; check the stored winner.
+    v_is_winner := (v_battle.winner_id = v_user_id);
+    IF v_is_winner THEN
+      v_bonus := v_bonus + 150;
+    END IF;
+  END IF;
 
+  -- Each player awards their own profile points independently.
   UPDATE profiles SET
-    points = points + v_score + v_bonus,
-    xp     = xp     + v_score + v_bonus,
-    level  = GREATEST(1, FLOOR(SQRT((xp + v_score + v_bonus) / 100.0))::INT + 1)
+    points = points + v_my_score + v_bonus,
+    xp     = xp + v_my_score + v_bonus,
+    level  = GREATEST(1, FLOOR(SQRT((xp + v_my_score + v_bonus) / 100.0))::INT + 1)
   WHERE id = v_user_id;
 
-  RETURN jsonb_build_object('score', v_score + v_bonus, 'bonus', v_bonus, 'perfect', v_score >= 700);
+  RETURN jsonb_build_object(
+    'score',   v_my_score + v_bonus,
+    'bonus',   v_bonus,
+    'perfect', v_perfect,
+    'winner',  v_is_winner
+  );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 

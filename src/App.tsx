@@ -146,11 +146,15 @@ function useRouter() {
 
 function PageContent() {
   const { path, navigate } = useRouter();
-  const { profile, user } = useAuth();
+  const { profile, user, initialized } = useAuth();
 
   const isAdmin = profile?.role === 'admin';
 
   if (path.startsWith('/admin')) {
+    // Wait until auth is fully resolved before making access decisions.
+    // Without this guard, the page could redirect during the brief init window
+    // where profile is still null even for a valid admin session.
+    if (!initialized) return null;
     if (!isAdmin) {
       navigate('/home');
       return null;

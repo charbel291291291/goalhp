@@ -35,13 +35,21 @@ CREATE POLICY "Admins can manage categories"
   );
 
 -- Quiz Questions
--- NOTE: correct_answer_index is readable here. The RPC submit_quiz_answer()
--- is the security boundary — it validates server-side and never returns the
--- answer for questions not yet answered. Admins need full access.
+-- correct_answer_index is excluded from the public view below.
+-- Authenticated users should read through quiz_questions_public.
+-- Admins (and server-side RPCs with SECURITY DEFINER) access the base table directly.
 ALTER TABLE quiz_questions ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Authenticated users can read questions"
   ON quiz_questions FOR SELECT TO authenticated USING (active = TRUE);
+
+-- Public view strips the answer column so it cannot be scraped via the REST API.
+CREATE OR REPLACE VIEW quiz_questions_public AS
+  SELECT id, category_id, question_en, question_ar, answers_en, answers_ar,
+         difficulty, image_url, active
+  FROM quiz_questions
+  WHERE active = TRUE;
+GRANT SELECT ON quiz_questions_public TO authenticated;
 
 CREATE POLICY "Admins can manage questions"
   ON quiz_questions FOR ALL USING (
