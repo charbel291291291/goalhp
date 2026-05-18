@@ -15,7 +15,7 @@ export default function PosterGenerator() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [step, setStep] = useState(1);
   const [selectedTeam, setSelectedTeam] = useState<any>(null);
-  const setSelectedStyle = useState<any>(null)[1];
+  const [selectedStyle, setSelectedStyle] = useState<any>(null);
   const [slogan, setSlogan] = useState('');
   const [image, setImage] = useState<string | null>(null);
   const [format, setFormat] = useState('1:1');
@@ -54,12 +54,33 @@ export default function PosterGenerator() {
   };
 
   const drawContent = (ctx: CanvasRenderingContext2D, w: number, h: number) => {
-    // Overlay gradient
-    const overlay = ctx.createLinearGradient(0, 0, 0, h);
-    overlay.addColorStop(0, 'rgba(0,0,0,0.1)');
-    overlay.addColorStop(0.6, 'rgba(0,0,0,0.4)');
-    ctx.fillStyle = overlay;
-    ctx.fillRect(0, 0, w, h);
+    const styleId = selectedStyle?.id || 'stadium-hero';
+
+    // Overlay — varies by style
+    if (styleId === 'dark-premium') {
+      ctx.fillStyle = 'rgba(0,0,0,0.65)';
+      ctx.fillRect(0, 0, w, h);
+    } else if (styleId === 'golden-trophy') {
+      const overlay = ctx.createLinearGradient(0, 0, 0, h);
+      overlay.addColorStop(0, 'rgba(212,175,55,0.25)');
+      overlay.addColorStop(1, 'rgba(0,0,0,0.55)');
+      ctx.fillStyle = overlay;
+      ctx.fillRect(0, 0, w, h);
+    } else {
+      const overlay = ctx.createLinearGradient(0, 0, 0, h);
+      overlay.addColorStop(0, 'rgba(0,0,0,0.1)');
+      overlay.addColorStop(0.6, 'rgba(0,0,0,0.4)');
+      ctx.fillStyle = overlay;
+      ctx.fillRect(0, 0, w, h);
+    }
+
+    // Style badge
+    if (selectedStyle) {
+      ctx.font = `${Math.floor(w * 0.022)}px Arial`;
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.textAlign = 'right';
+      ctx.fillText(lang === 'ar' ? selectedStyle.name_ar : selectedStyle.name_en, w - 12, 20);
+    }
 
     // Flag emoji
     ctx.font = `${Math.floor(w * 0.3)}px Arial`;
@@ -68,7 +89,7 @@ export default function PosterGenerator() {
 
     // Team name
     ctx.font = `bold ${Math.floor(w * 0.08)}px Arial`;
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = styleId === 'golden-trophy' ? '#f0d060' : '#ffffff';
     ctx.textAlign = 'center';
     ctx.fillText(lang === 'ar' ? selectedTeam.name_ar : selectedTeam.name_en, w / 2, h * 0.55);
 
@@ -106,7 +127,8 @@ export default function PosterGenerator() {
     return lines.length ? lines : [text];
   }
 
-  useEffect(() => { if (selectedTeam && step === 4) renderCanvas(); }, [selectedTeam, slogan, format, image, step]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (selectedTeam && step === 4) renderCanvas(); }, [selectedTeam, selectedStyle, slogan, format, image, step]);
 
   const handleDownload = () => {
     if (canvasRef.current) downloadCanvas(canvasRef.current, `${selectedTeam?.fifa_code || 'poster'}-quizgoal.png`);
@@ -141,12 +163,20 @@ export default function PosterGenerator() {
         <button onClick={() => setStep(1)} className="btn-ghost text-sm">← {t('common.back')}</button>
         <h2 className="text-xl font-bold">{t('poster.selectStyle')}</h2>
         <div className="grid grid-cols-2 gap-3">
-          {posterStyles.map((style) => (
-            <button key={style.id} onClick={() => { setSelectedStyle(style); setStep(3); }}
-              className="p-4 rounded-xl bg-gradient-to-br from-electric/10 to-neon/10 border border-white/10 text-center hover:scale-[1.02] transition-all">
-              <div className="text-sm font-medium">{lang === 'ar' ? style.name_ar : style.name_en}</div>
-            </button>
-          ))}
+          {posterStyles.map((style) => {
+            const active = selectedStyle?.id === style.id;
+            return (
+              <button key={style.id} onClick={() => { setSelectedStyle(style); setStep(3); }}
+                className={`p-4 rounded-xl border text-center hover:scale-[1.02] transition-all ${
+                  active
+                    ? 'bg-electric/20 border-electric'
+                    : 'bg-gradient-to-br from-electric/10 to-neon/10 border-white/10'
+                }`}>
+                <div className="text-sm font-medium">{lang === 'ar' ? style.name_ar : style.name_en}</div>
+                {active && <div className="text-[10px] text-electric mt-1">✓ {lang === 'ar' ? 'محدد' : 'Selected'}</div>}
+              </button>
+            );
+          })}
         </div>
       </div>
     );

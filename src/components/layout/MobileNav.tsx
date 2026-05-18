@@ -1,6 +1,9 @@
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../store/useAuth';
 import { cn } from '../../lib/utils';
+
+const AUTH_PATHS = new Set(['/', '/login', '/signup', '/onboarding']);
 
 const items = [
   { path: '/home', icon: '🏠', key: 'home', label: 'Home' },
@@ -16,14 +19,19 @@ const items = [
 export default function MobileNav() {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const [path, setPath] = useState(window.location.pathname);
+
+  useEffect(() => {
+    const onPop = () => setPath(window.location.pathname);
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
 
   if (!user) return null;
-
-  const path = window.location.pathname;
-  if (path === '/' || path === '/login' || path === '/signup' || path === '/onboarding') return null;
+  if (AUTH_PATHS.has(path)) return null;
 
   return (
-    <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 safe-bottom">
+    <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-[9990] safe-bottom">
       <div className="bg-[#0a1628]/90 backdrop-blur-2xl border-t border-white/[0.06] rounded-t-2xl shadow-[0_-8px_30px_rgba(0,0,0,0.4)]">
         <div className="flex items-center justify-between py-1.5 px-1 overflow-x-auto scrollbar-hide gap-0">
           {items.map((item) => {
