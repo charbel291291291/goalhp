@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../store/useAuth';
 import { cn } from '../../lib/utils';
 
-const AUTH_PATHS = new Set(['/', '/login', '/signup', '/onboarding']);
+const HIDDEN_PATHS = new Set(['/', '/login', '/signup', '/onboarding']);
+const HIDDEN_PREFIXES = ['/admin', '/sponsor'];
 
 const items = [
   { path: '/home', icon: '🏠', key: 'home', label: 'Home' },
@@ -28,7 +29,8 @@ export default function MobileNav() {
   }, []);
 
   if (!user) return null;
-  if (AUTH_PATHS.has(path)) return null;
+  if (HIDDEN_PATHS.has(path)) return null;
+  if (HIDDEN_PREFIXES.some(p => path.startsWith(p))) return null;
 
   return (
     <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-[9990] safe-bottom">

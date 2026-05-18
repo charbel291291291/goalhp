@@ -206,7 +206,6 @@ function PageContent() {
           </div>
         </div>
       </main>
-      {showNav && <MobileNav />}
       <Toaster position="top-center" toastOptions={{
         style: { background: '#132042', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' },
       }} />
@@ -255,6 +254,7 @@ export default function App() {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <PageContent />
+        <MobileNav />
       </QueryClientProvider>
     </ErrorBoundary>
   );
