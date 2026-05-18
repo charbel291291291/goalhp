@@ -345,3 +345,42 @@ BEGIN
   RETURN jsonb_build_object('success', TRUE, 'comment_id', v_comment_id);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================================
+-- FRIENDS SECTION FIXES
+-- ============================================================
+
+-- HIGH-4: send_battle_invite — require accepted friendship before creating invite
+CREATE OR REPLACE FUNCTION send_battle_invite(p_to_user_id UUID)
+RETURNS JSONB
+LANGUAGE plpgsql SECURITY DEFINER
+AS $$
+DECLARE
+  battle_id     UUID;
+  invite_id     UUID;
+  friendship_id UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN jsonb_build_object('error', 'Not authenticated');
+  END IF;
+  SELECT id INTO friendship_id FROM friends
+    WHERE ((requester_id = auth.uid() AND addressee_id = p_to_user_id)
+        OR (addressee_id = auth.uid() AND requester_id = p_to_user_id))
+      AND status = 'accepted';
+  IF friendship_id IS NULL THEN
+    RETURN jsonb_build_object('error', 'You must be friends to send a battle invite');
+  END IF;
+  INSERT INTO quiz_battles (player_one, player_two, mode, status)
+    VALUES (auth.uid(), p_to_user_id, 'friend', 'waiting')
+    RETURNING id INTO battle_id;
+  INSERT INTO battle_invites (from_user_id, to_user_id, battle_id, status)
+    VALUES (auth.uid(), p_to_user_id, battle_id, 'pending')
+    RETURNING id INTO invite_id;
+  RETURN jsonb_build_object('success', true, 'battle_id', battle_id, 'invite_id', invite_id);
+END;
+$$;
+
+-- MEDIUM-1: Enforce 500-character limit on friend_messages
+ALTER TABLE friend_messages
+  ADD CONSTRAINT IF NOT EXISTS friend_messages_length_check
+  CHECK (char_length(message) <= 500);

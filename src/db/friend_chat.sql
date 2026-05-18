@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS friend_messages (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   sender_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   receiver_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  message TEXT NOT NULL,
+  message TEXT NOT NULL CHECK (char_length(message) <= 500),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   read_at TIMESTAMPTZ
 );

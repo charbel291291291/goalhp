@@ -85,10 +85,11 @@ export function useFriends() {
     load();
   }, [load]);
 
-  const sendBattleInvite = useCallback(async (friendId: string): Promise<string | null> => {
+  const sendBattleInvite = useCallback(async (friendId: string): Promise<{ battleId: string; inviteId: string } | null> => {
     const { data } = await supabase.rpc('send_battle_invite', { p_to_user_id: friendId });
     if (data?.error) { toast.error(data.error); return null; }
-    return data?.battle_id || null;
+    if (!data?.battle_id || !data?.invite_id) return null;
+    return { battleId: data.battle_id, inviteId: data.invite_id };
   }, []);
 
   const acceptInvite = useCallback(async (inviteId: string): Promise<string | null> => {

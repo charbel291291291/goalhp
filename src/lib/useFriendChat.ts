@@ -1,7 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from './supabase';
 import { useAuth } from '../store/useAuth';
+import toast from 'react-hot-toast';
 import type { RealtimeChannel } from '@supabase/supabase-js';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface ChatMessage {
   id: string;
@@ -20,7 +23,20 @@ export function useFriendChat(friendId: string | null) {
   const channelRef = useRef<RealtimeChannel | null>(null);
 
   const loadMessages = useCallback(async () => {
-    if (!profile || !friendId) return;
+    if (!profile || !friendId || !UUID_RE.test(friendId)) { setLoading(false); return; }
+
+    // Verify friendship before loading messages
+    const { data: friendship } = await supabase
+      .from('friends')
+      .select('id')
+      .or(
+        `and(requester_id.eq.${profile.id},addressee_id.eq.${friendId}),` +
+        `and(requester_id.eq.${friendId},addressee_id.eq.${profile.id})`
+      )
+      .eq('status', 'accepted')
+      .maybeSingle();
+    if (!friendship) { setLoading(false); return; }
+
     const { data } = await supabase
       .from('friend_messages')
       .select('*')
@@ -33,7 +49,7 @@ export function useFriendChat(friendId: string | null) {
 
   // Mark messages as read
   useEffect(() => {
-    if (!profile || !friendId) return;
+    if (!profile || !friendId || !UUID_RE.test(friendId)) return;
     supabase
       .from('friend_messages')
       .update({ read_at: new Date().toISOString() })
@@ -47,7 +63,7 @@ export function useFriendChat(friendId: string | null) {
 
   // Realtime subscription
   useEffect(() => {
-    if (!profile || !friendId) return;
+    if (!profile || !friendId || !UUID_RE.test(friendId)) return;
     const channelName = `chat:${[profile.id, friendId].sort().join(':')}`;
     const channel = supabase.channel(channelName, {
       config: { broadcast: { self: false } },
@@ -102,7 +118,10 @@ export function useFriendChat(friendId: string | null) {
     if (data) {
       setMessages(prev => [...prev, data as unknown as ChatMessage]);
     }
-    if (error) console.error('Send error:', error);
+    if (error) {
+      console.error('Send error:', error);
+      toast.error('Failed to send message');
+    }
     setSending(false);
   }, [profile, friendId]);
 
