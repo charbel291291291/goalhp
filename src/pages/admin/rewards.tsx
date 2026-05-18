@@ -65,7 +65,7 @@ export default function AdminRewards() {
               <div className="text-xs text-white/40">{r.sponsor_name} · {r.points_required} pts · {r.quantity} left</div>
             </div>
             <div className="flex gap-2">
-              <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>
+              <Button variant="ghost" size="sm" onClick={() => openEdit(r as unknown as Reward)}>
                 {lang === 'ar' ? 'تعديل' : 'Edit'}
               </Button>
               <Button variant="ghost" size="sm" className="text-red-400" onClick={() => handleDelete(r.id)}>

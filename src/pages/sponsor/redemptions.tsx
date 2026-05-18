@@ -90,7 +90,7 @@ export default function SponsorRedemptions() {
                   <button onClick={() => markUsed(red.id)}
                     className="neon-button px-4 py-2 rounded-xl text-xs font-bold">Mark as Used</button>
                 ) : (
-                  <span className="text-white/40 text-sm">{red.status === 'used' ? `Used ${new Date(red.used_at).toLocaleDateString()}` : red.status}</span>
+                  <span className="text-white/40 text-sm">{red.status === 'used' ? `Used ${red.used_at ? new Date(red.used_at).toLocaleDateString() : ''}` : red.status}</span>
                 )}
               </div>
             </div>

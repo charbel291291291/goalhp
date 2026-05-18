@@ -215,7 +215,7 @@ export function useLeaderboard(limit = 50) {
       .order('points', { ascending: false })
       .limit(limit);
     if (error || !data) return [];
-    return data as Profile[];
+    return data as unknown as Profile[];
   }, [limit]);
 }
 
