@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useAuth } from '../../store/useAuth';
+import { supabase } from '../../lib/supabase';
 import { cn } from '../../lib/utils';
 
 const HIDDEN_PATHS = new Set(['/', '/login', '/signup', '/onboarding']);
@@ -19,8 +19,22 @@ const items = [
 
 export default function MobileNav() {
   const { t } = useTranslation();
-  const { user } = useAuth();
   const [path, setPath] = useState(window.location.pathname);
+  const [authed, setAuthed] = useState(false);
+
+  useEffect(() => {
+    // Check session immediately on mount
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setAuthed(!!session);
+    });
+
+    // Keep in sync with auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthed(!!session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   useEffect(() => {
     const onPop = () => setPath(window.location.pathname);
@@ -28,7 +42,7 @@ export default function MobileNav() {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
-  if (!user) return null;
+  if (!authed) return null;
   if (HIDDEN_PATHS.has(path)) return null;
   if (HIDDEN_PREFIXES.some(p => path.startsWith(p))) return null;
 
