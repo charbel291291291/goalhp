@@ -15,7 +15,8 @@ function navigate(path: string) {
 }
 
 function getDailyQuestions(): QuizQuestion[] {
-  const today = new Date().toDateString();
+  const d = new Date();
+  const today = `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`;
   const seed = today.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
   const shuffled = [...sampleQuestions].sort(
     (a, b) => ((seed + a.id.charCodeAt(0)) % 10) - ((seed + b.id.charCodeAt(0)) % 10)

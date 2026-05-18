@@ -83,6 +83,10 @@ export default function PvpBattle() {
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef(new Date().getTime());
+  const phaseRef = useRef(phase);
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
+  // Tracks whether a friend-battle join has been attempted (for error recovery)
+  const joinAttemptedRef = useRef(false);
 
   const botName = opponent?.name || opponent?.username || 'Bot';
   const botFlag = opponent?.flag || '🤖';
@@ -90,6 +94,7 @@ export default function PvpBattle() {
   // Friend mode: join existing battle by ID
   useEffect(() => {
     if (isFriend && friendBattleId) {
+      joinAttemptedRef.current = true;
       void realtime.joinBattle(friendBattleId);
     }
   }, [friendBattleId, isFriend, realtime]);
@@ -121,7 +126,9 @@ export default function PvpBattle() {
         setOpponentAnswers(realtime.opponentAnswers.map((a) => ({ correct: a.isCorrect, points: a.points })));
         setPhase('result');
       } else if (realtime.phase === 'idle') {
-        if (phase !== 'result') setPhase('select');
+        // For friend mode: if a join was attempted and failed, go back to select
+        if (isFriend && joinAttemptedRef.current) setPhase('select');
+        else if (!isFriend && phase !== 'result') setPhase('select');
       }
 
       if (realtime.opponent) {
@@ -173,6 +180,8 @@ export default function PvpBattle() {
       const isCorrect = rnd() < 0.6;
 
       setTimeout(() => {
+        // Don't update state after the battle has ended
+        if (phaseRef.current !== 'playing') return;
         const pts = isCorrect ? 100 + Math.floor(rnd() * 80) : 0;
         setOpponentAnswers((prev) => [...prev, { correct: isCorrect, points: pts }]);
         setOpponentScore((prev) => prev + pts);
@@ -197,7 +206,10 @@ export default function PvpBattle() {
           if (timerRef.current) clearInterval(timerRef.current);
           setShowCorrect(true);
           setMyAnswers((a) => [...a, { correct: false, points: 0 }]);
-          setOpponentProgress((p) => p + 1);
+          // Do NOT increment opponentProgress here: in bot mode the bot's
+          // own setTimeout always fires before the 10-s timer (2-7s think
+          // time) so incrementing here would double-count; in PvP/friend
+          // mode, opponentProgress comes from realtime broadcasts.
           return 0;
         }
         return prev - 1;
@@ -221,6 +233,14 @@ export default function PvpBattle() {
       }
     }, 1200);
   }, [currentQ, questions.length]);
+
+  // When the timer expires without an answer (selected stays null), advance to
+  // the next question. handleAnswer already calls advance() when the user picks
+  // an answer, so we guard with selected===null to avoid a double-call.
+  useEffect(() => {
+    if (phase !== 'playing' || !showCorrect || selected !== null) return;
+    advance();
+  }, [advance, phase, selected, showCorrect]);
 
   const handleAnswer = useCallback(
     async (index: number) => {
