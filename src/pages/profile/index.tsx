@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../store/useAuth';
@@ -43,6 +43,7 @@ export default function ProfileIndex() {
   const [editingUsername, setEditingUsername] = useState(false);
   const [username, setUsername] = useState('');
   const [usernameError, setUsernameError] = useState('');
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const notifications = usePushNotifications();
 
@@ -66,12 +67,12 @@ export default function ProfileIndex() {
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    // Reset so the same file can be re-selected after an error
+    e.target.value = '';
     if (!file || !profile) return;
     setUploading(true);
     const url = await uploadAvatar.mutate(file, profile.id);
-    if (url) {
-      await refreshProfile();
-    }
+    if (url) await refreshProfile();
     setUploading(false);
   };
 
@@ -133,10 +134,21 @@ export default function ProfileIndex() {
                   userTeam?.flag_emoji || '⚽'
                 )}
               </div>
-              <label className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-electric hover:bg-electric-light flex items-center justify-center cursor-pointer text-xs shadow-lg transition-all hover:scale-105">
-                📷
-                <input type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} disabled={uploading} />
-              </label>
+              <button
+                type="button"
+                onClick={() => !uploading && avatarInputRef.current?.click()}
+                disabled={uploading}
+                className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-electric hover:bg-electric-light flex items-center justify-center cursor-pointer text-xs shadow-lg transition-all hover:scale-105 disabled:opacity-60"
+              >
+                {uploading ? '⏳' : '📷'}
+              </button>
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleAvatarUpload}
+              />
             </div>
 
             {editingUsername ? (
@@ -149,8 +161,8 @@ export default function ProfileIndex() {
                     className={`bg-white/5 border rounded-lg px-2 py-1 text-sm text-white w-32 text-center focus:outline-none transition-colors ${usernameError ? 'border-red-500' : 'border-white/10 focus:border-electric'}`}
                     placeholder={profile?.username || 'Username'}
                   />
-                  <button onClick={handleUpdateUsername} disabled={!!usernameError} className="text-xs text-neon hover:text-neon-light disabled:opacity-30">✓</button>
-                  <button onClick={() => { setEditingUsername(false); setUsernameError(''); }} className="text-xs text-white/30 hover:text-white/50">✕</button>
+                  <button onClick={handleUpdateUsername} disabled={!!usernameError} className="w-8 h-8 flex items-center justify-center rounded-lg bg-neon/20 text-neon text-base hover:bg-neon/30 transition-all disabled:opacity-30 disabled:cursor-not-allowed">✓</button>
+                  <button onClick={() => { setEditingUsername(false); setUsernameError(''); }} className="w-8 h-8 flex items-center justify-center rounded-lg bg-white/10 text-white/50 text-base hover:bg-white/20 transition-all">✕</button>
                 </div>
                 {usernameError && <p className="text-[10px] text-red-400 mt-1">{usernameError}</p>}
               </div>
