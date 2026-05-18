@@ -35,10 +35,6 @@ type TeamMini = {
   name_ar?: string | null;
 };
 
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 export default function Predictions() {
   const { t, i18n } = useTranslation();
   const lang = i18n.language as 'en' | 'ar';
@@ -200,7 +196,7 @@ export default function Predictions() {
               const key = 'tournament_winner';
               const selected = myPredictions[key]?.team === team.fifa_code;
               return (
-                <button key={`tw-${team.fifa_code}`} onClick={() => setMyPredictions(prev => ({ ...prev, [key]: { team: team.fifa_code } }))}
+                <button key={`tw-${team.fifa_code}`} onClick={() => setMyPredictions(prev => ({ ...prev, [key]: { team: team.fifa_code ?? undefined } }))}
                   className={`p-2 rounded-xl text-center text-xs transition-all ${selected ? 'bg-gold text-navy font-bold scale-105' : 'bg-white/5 hover:bg-white/10 text-white/70'}`}>
                   <div className="text-lg mb-1">{team.flag_emoji}</div>
                   <div className="leading-tight">{lang === 'ar' ? team.name_ar : team.name_en}</div>

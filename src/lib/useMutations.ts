@@ -264,7 +264,7 @@ export function useCompleteMission() {
         completed_at: completed ? new Date().toISOString() : null,
       }).eq('id', existing.id);
       if (completed) {
-        await supabase.rpc('apply_points', { p_user_id: profile.id, p_points: mission.data?.points_reward || 0 });
+        await supabase.rpc('apply_points', { p_mission_id: missionId, p_points: mission.data?.points_reward || 0 });
       }
     } else {
       await supabase.from('user_missions').insert({

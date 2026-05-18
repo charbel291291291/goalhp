@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS poster_competition_entries (
 
 ALTER TABLE poster_competition_entries ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Anyone can read entries" ON poster_competition_entries FOR SELECT USING (TRUE);
-CREATE POLICY "Authenticated insert" ON poster_competition_entries FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "Authenticated insert" ON poster_competition_entries FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
 
 -- ============================================================
 -- 3. REACTIONS (emoji on posters)
@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS room_messages (
 ALTER TABLE room_messages ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Anyone can read room messages" ON room_messages FOR SELECT USING (TRUE);
 CREATE POLICY "Users can insert messages" ON room_messages
-  FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+  FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
 
 -- ============================================================
 -- 5. COUNTRIES (Arab Fan Cup)
@@ -321,23 +321,31 @@ ALTER PUBLICATION supabase_realtime ADD TABLE poster_reactions;
 -- ============================================================
 -- 10. Update existing RPC to add city/country points
 -- ============================================================
+-- add_quiz_points: used by solo/daily client flows.
+-- Cap at 5000 per call (well above any legitimate single-session score)
+-- to limit the blast radius of a client sending an inflated value.
 CREATE OR REPLACE FUNCTION add_quiz_points(p_points INTEGER) RETURNS JSONB AS $$
 DECLARE
-  v_user_id UUID;
-  v_profile RECORD;
+  v_user_id  UUID;
+  v_profile  RECORD;
+  v_capped   INTEGER;
 BEGIN
   v_user_id := auth.uid();
   IF v_user_id IS NULL THEN
     RETURN jsonb_build_object('error', 'Not authenticated');
   END IF;
+  IF p_points <= 0 THEN
+    RETURN jsonb_build_object('error', 'Points must be positive');
+  END IF;
+  -- Cap prevents a client from awarding unlimited points in one call.
+  v_capped := LEAST(p_points, 5000);
   UPDATE profiles SET
-    points = points + p_points,
-    xp = xp + p_points,
-    level = GREATEST(1, FLOOR(SQRT((xp + p_points) / 100)) + 1)
+    points = points + v_capped,
+    xp     = xp + v_capped,
+    level  = GREATEST(1, FLOOR(SQRT((xp + v_capped) / 100)) + 1)
   WHERE id = v_user_id
   RETURNING * INTO v_profile;
-  -- Award city and country points
-  PERFORM award_city_points(v_user_id, p_points);
+  PERFORM award_city_points(v_user_id, v_capped);
   RETURN jsonb_build_object('success', TRUE, 'points', v_profile.points, 'level', v_profile.level);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

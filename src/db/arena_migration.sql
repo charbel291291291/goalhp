@@ -178,7 +178,7 @@ CREATE TABLE IF NOT EXISTS user_titles (
 
 ALTER TABLE user_titles ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Anyone can read user titles" ON user_titles FOR SELECT USING (TRUE);
-CREATE POLICY "System can insert titles" ON user_titles FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "System can insert titles" ON user_titles FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
 
 -- ============================================================
 -- 7. ARENA STREAK
@@ -194,7 +194,7 @@ CREATE TABLE IF NOT EXISTS arena_streaks (
 
 ALTER TABLE arena_streaks ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Anyone can read streaks" ON arena_streaks FOR SELECT USING (TRUE);
-CREATE POLICY "System can update streaks" ON arena_streaks FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "System can update streaks" ON arena_streaks FOR ALL USING (auth.uid() IS NOT NULL);
 
 -- ============================================================
 -- 8. STORAGE BUCKETS
@@ -243,13 +243,25 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Create arena post
+-- Create arena post (rate-limited: max 10 posts per minute per user)
 CREATE OR REPLACE FUNCTION create_arena_post(p_post_type TEXT, p_content TEXT, p_media_url TEXT DEFAULT NULL, p_match_id UUID DEFAULT NULL, p_team_id UUID DEFAULT NULL, p_country TEXT DEFAULT NULL) RETURNS JSONB AS $$
 DECLARE
-  v_user_id UUID;
-  v_post_id UUID;
+  v_user_id   UUID;
+  v_post_id   UUID;
+  v_recent    INT;
 BEGIN
   v_user_id := auth.uid();
+  IF v_user_id IS NULL THEN
+    RETURN jsonb_build_object('error', 'Not authenticated');
+  END IF;
+  IF char_length(p_content) > 2000 THEN
+    RETURN jsonb_build_object('error', 'Content too long (max 2000 characters)');
+  END IF;
+  SELECT COUNT(*) INTO v_recent FROM arena_posts
+    WHERE user_id = v_user_id AND created_at > NOW() - INTERVAL '1 minute';
+  IF v_recent >= 10 THEN
+    RETURN jsonb_build_object('error', 'Rate limit: max 10 posts per minute');
+  END IF;
   INSERT INTO arena_posts (user_id, post_type, content, media_url, match_id, team_id, country)
   VALUES (v_user_id, p_post_type, p_content, p_media_url, p_match_id, p_team_id, p_country)
   RETURNING id INTO v_post_id;
@@ -258,13 +270,25 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Create arena comment
+-- Create arena comment (rate-limited: max 30 comments per minute per user)
 CREATE OR REPLACE FUNCTION create_arena_comment(p_post_id UUID, p_content TEXT, p_parent_id UUID DEFAULT NULL) RETURNS JSONB AS $$
 DECLARE
-  v_user_id UUID;
+  v_user_id    UUID;
   v_comment_id UUID;
+  v_recent     INT;
 BEGIN
   v_user_id := auth.uid();
+  IF v_user_id IS NULL THEN
+    RETURN jsonb_build_object('error', 'Not authenticated');
+  END IF;
+  IF char_length(p_content) > 1000 THEN
+    RETURN jsonb_build_object('error', 'Comment too long (max 1000 characters)');
+  END IF;
+  SELECT COUNT(*) INTO v_recent FROM arena_comments
+    WHERE user_id = v_user_id AND created_at > NOW() - INTERVAL '1 minute';
+  IF v_recent >= 30 THEN
+    RETURN jsonb_build_object('error', 'Rate limit: max 30 comments per minute');
+  END IF;
   INSERT INTO arena_comments (post_id, user_id, content, parent_id)
   VALUES (p_post_id, v_user_id, p_content, p_parent_id)
   RETURNING id INTO v_comment_id;
@@ -340,11 +364,36 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Report post/comment
+-- Arena content reports table (separate from poster_reports to avoid FK violations)
+CREATE TABLE IF NOT EXISTS arena_reports (
+  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  reporter_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  post_id     UUID REFERENCES arena_posts(id)    ON DELETE SET NULL,
+  comment_id  UUID REFERENCES arena_comments(id) ON DELETE SET NULL,
+  reason      TEXT NOT NULL,
+  created_at  TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT one_target CHECK (
+    (post_id IS NOT NULL AND comment_id IS NULL) OR
+    (post_id IS NULL AND comment_id IS NOT NULL)
+  )
+);
+ALTER TABLE arena_reports ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can submit reports" ON arena_reports
+  FOR INSERT WITH CHECK (auth.uid() = reporter_id);
+CREATE POLICY "Admins can read reports" ON arena_reports
+  FOR SELECT USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'));
+
+-- Report post/comment (writes to arena_reports, not poster_reports)
 CREATE OR REPLACE FUNCTION report_arena_content(p_reason TEXT, p_post_id UUID DEFAULT NULL, p_comment_id UUID DEFAULT NULL) RETURNS JSONB AS $$
 BEGIN
-  INSERT INTO poster_reports (poster_id, reporter_id, reason)
-  VALUES (COALESCE(p_post_id, p_comment_id), auth.uid(), p_reason);
+  IF auth.uid() IS NULL THEN
+    RETURN jsonb_build_object('error', 'Not authenticated');
+  END IF;
+  IF p_post_id IS NULL AND p_comment_id IS NULL THEN
+    RETURN jsonb_build_object('error', 'Must specify post_id or comment_id');
+  END IF;
+  INSERT INTO arena_reports (reporter_id, post_id, comment_id, reason)
+  VALUES (auth.uid(), p_post_id, p_comment_id, p_reason);
   RETURN jsonb_build_object('success', TRUE);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

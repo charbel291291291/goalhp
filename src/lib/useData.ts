@@ -206,12 +206,16 @@ export function useRegions() {
   }, []);
 }
 
-// Leaderboard
+// Leaderboard — select only the fields needed for display; omit 'role' and other sensitive columns.
 export function useLeaderboard(limit = 50) {
   return useLocalQuery<Profile[]>(async () => {
-    const { data, error } = await supabase.from('profiles').select('*').order('points', { ascending: false }).limit(limit);
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, username, avatar_url, points, level, xp, streak, flag_emoji, favorite_team_id')
+      .order('points', { ascending: false })
+      .limit(limit);
     if (error || !data) return [];
-    return data as Profile[];
+    return data as unknown as Profile[];
   }, [limit]);
 }
 

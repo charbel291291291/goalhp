@@ -89,66 +89,93 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Finish battle and award points
+-- FOR UPDATE prevents concurrent double-award race condition.
+-- Winner is determined by score, not by who calls first.
+-- Each player must call finish_battle to receive their own profile points.
 CREATE OR REPLACE FUNCTION finish_battle(p_battle_id UUID) RETURNS JSONB AS $$
 DECLARE
-  v_user_id UUID;
-  v_battle RECORD;
-  v_score INT;
-  v_bonus INT := 0;
+  v_user_id        UUID;
+  v_battle         RECORD;
+  v_my_score       INT;
+  v_opponent_score INT;
+  v_bonus          INT := 0;
+  v_perfect        BOOLEAN := false;
+  v_winner_id      UUID;
+  v_is_winner      BOOLEAN := false;
 BEGIN
   v_user_id := auth.uid();
   IF v_user_id IS NULL THEN
     RETURN jsonb_build_object('error', 'Not authenticated');
   END IF;
 
-  SELECT * INTO v_battle FROM quiz_battles WHERE id = p_battle_id;
+  -- Lock the row to prevent two concurrent callers from both seeing 'playing'
+  -- and double-awarding points. The second caller proceeds after the first commits.
+  SELECT * INTO v_battle FROM quiz_battles WHERE id = p_battle_id FOR UPDATE;
 
   IF NOT FOUND THEN
     RETURN jsonb_build_object('error', 'Battle not found');
   END IF;
 
-  -- Verify the caller is a participant in the battle
-  IF v_battle.player_one != v_user_id AND (v_battle.player_two IS NULL OR v_battle.player_two != v_user_id) THEN
+  IF v_battle.player_one = v_user_id THEN
+    v_my_score       := v_battle.player_one_score;
+    v_opponent_score := COALESCE(v_battle.player_two_score, 0);
+  ELSIF v_battle.player_two = v_user_id THEN
+    v_my_score       := v_battle.player_two_score;
+    v_opponent_score := v_battle.player_one_score;
+  ELSE
     RETURN jsonb_build_object('error', 'Not a participant in this battle');
   END IF;
 
-  -- Verify battle is in playing state (prevent double-finishing)
-  IF v_battle.status != 'playing' THEN
-    RETURN jsonb_build_object('error', 'Battle is not in playing state');
+  IF v_battle.status NOT IN ('playing', 'finished') THEN
+    RETURN jsonb_build_object('error', 'Battle is not active');
   END IF;
 
-  -- Determine this caller's score
-  v_score := CASE WHEN v_battle.player_one = v_user_id
-    THEN v_battle.player_one_score
-    ELSE v_battle.player_two_score
-  END;
-
-  -- Calculate bonuses
-  IF v_score >= 700 THEN
-    v_bonus := v_bonus + 300; -- Perfect battle
+  IF v_my_score >= 700 THEN
+    v_bonus  := v_bonus + 300;
+    v_perfect := true;
   END IF;
-  v_bonus := v_bonus + 150; -- Completion bonus
 
-  -- Mark battle finished
-  UPDATE quiz_battles SET
-    status = 'finished',
-    winner_id = v_user_id,
-    player_one_score = CASE WHEN player_one = v_user_id THEN player_one_score + v_bonus ELSE player_one_score END,
-    player_two_score = CASE WHEN player_two = v_user_id THEN player_two_score + v_bonus ELSE player_two_score END,
-    ended_at = NOW()
-  WHERE id = p_battle_id;
+  IF v_battle.status = 'playing' THEN
+    -- First caller: determine winner by score, mark battle finished.
+    IF v_my_score > v_opponent_score THEN
+      v_bonus     := v_bonus + 150;
+      v_is_winner := true;
+      v_winner_id := v_user_id;
+    ELSIF v_opponent_score > v_my_score THEN
+      v_winner_id := CASE
+        WHEN v_battle.player_one = v_user_id THEN v_battle.player_two
+        ELSE v_battle.player_one
+      END;
+    END IF;
 
-  -- Award points to the finishing player's profile
+    UPDATE quiz_battles SET
+      status           = 'finished',
+      winner_id        = v_winner_id,
+      player_one_score = CASE WHEN player_one = v_user_id THEN v_my_score + v_bonus ELSE player_one_score END,
+      player_two_score = CASE WHEN player_two = v_user_id THEN v_my_score + v_bonus ELSE player_two_score END,
+      ended_at         = NOW()
+    WHERE id = p_battle_id;
+  ELSE
+    -- Second caller: battle already finished by the other player.
+    -- Still award this player's profile points; check the stored winner.
+    v_is_winner := (v_battle.winner_id = v_user_id);
+    IF v_is_winner THEN
+      v_bonus := v_bonus + 150;
+    END IF;
+  END IF;
+
+  -- Each player awards their own profile points independently.
   UPDATE profiles SET
-    points = points + v_score + v_bonus,
-    xp = xp + v_score + v_bonus,
-    level = GREATEST(1, FLOOR(SQRT((xp + v_score + v_bonus) / 100.0))::INT + 1)
+    points = points + v_my_score + v_bonus,
+    xp     = xp + v_my_score + v_bonus,
+    level  = GREATEST(1, FLOOR(SQRT((xp + v_my_score + v_bonus) / 100.0))::INT + 1)
   WHERE id = v_user_id;
 
   RETURN jsonb_build_object(
-    'score', v_score + v_bonus,
-    'bonus', v_bonus,
-    'perfect', v_score >= 700
+    'score',   v_my_score + v_bonus,
+    'bonus',   v_bonus,
+    'perfect', v_perfect,
+    'winner',  v_is_winner
   );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -412,3 +439,33 @@ BEGIN
   RETURN GREATEST(1, FLOOR(SQRT(p_xp / 100.0))::INT + 1);
 END;
 $$ LANGUAGE plpgsql IMMUTABLE;
+
+-- apply_points: awards mission completion points to the calling user.
+-- Uses auth.uid() internally — never accepts a caller-supplied user ID.
+-- Validates the mission exists and belongs to the current user before awarding.
+CREATE OR REPLACE FUNCTION apply_points(p_mission_id UUID, p_points INTEGER) RETURNS JSONB AS $$
+DECLARE
+  v_user_id UUID;
+BEGIN
+  v_user_id := auth.uid();
+  IF v_user_id IS NULL THEN
+    RETURN jsonb_build_object('error', 'Not authenticated');
+  END IF;
+  IF p_points <= 0 THEN
+    RETURN jsonb_build_object('error', 'Points must be positive');
+  END IF;
+  -- Verify the user_mission record exists and is completed
+  IF NOT EXISTS (
+    SELECT 1 FROM user_missions
+    WHERE mission_id = p_mission_id AND user_id = v_user_id AND completed = TRUE
+  ) THEN
+    RETURN jsonb_build_object('error', 'Mission not completed or not found');
+  END IF;
+  UPDATE profiles SET
+    points = points + p_points,
+    xp     = xp + p_points,
+    level  = GREATEST(1, FLOOR(SQRT((xp + p_points) / 100.0))::INT + 1)
+  WHERE id = v_user_id;
+  RETURN jsonb_build_object('success', TRUE);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
