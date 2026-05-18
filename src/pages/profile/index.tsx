@@ -3,12 +3,12 @@ import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../store/useAuth';
 import { useUI } from '../../store/useUI';
-import { Button } from '../../components/common/Button';
 import { allTeams } from '../../lib/teams';
-import { formatPoints } from '../../lib/utils';
+import { formatPoints, getXPForLevel } from '../../lib/utils';
 import { useUploadAvatar, useUpdateProfile } from '../../lib/useMutations';
 import { usePushNotifications } from '../../lib/usePushNotifications';
 import { useFanTitle, useArenaStreak } from '../../lib/useArena';
+import { supabase } from '../../lib/supabase';
 import toast from 'react-hot-toast';
 
 function navigate(path: string) {
@@ -16,11 +16,7 @@ function navigate(path: string) {
   window.dispatchEvent(new PopStateEvent('popstate'));
 }
 
-import { supabase } from '../../lib/supabase';
-
-// Module-level flag so the RPC fires at most once per page session
 let _streakRecorded = false;
-
 const USERNAME_RE = /^[a-zA-Z0-9_]{2,30}$/;
 
 function useStreak() {
@@ -32,23 +28,58 @@ function useStreak() {
   }, [profile?.id, refreshProfile]);
 }
 
+function StatPill({ label, value, color }: { label: string; value: string | number; color: string }) {
+  return (
+    <div className="flex flex-col items-center gap-0.5 bg-white/[0.04] rounded-2xl py-3 px-2">
+      <span className={`text-lg font-bold ${color}`}>{value}</span>
+      <span className="text-[10px] text-white/40 uppercase tracking-wide">{label}</span>
+    </div>
+  );
+}
+
+function ToggleSwitch({ enabled, onChange }: { enabled: boolean; onChange: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onChange}
+      className={`relative w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none ${enabled ? 'bg-electric' : 'bg-white/20'}`}
+    >
+      <span
+        className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 ${enabled ? 'translate-x-5' : 'translate-x-0'}`}
+      />
+    </button>
+  );
+}
+
 export default function ProfileIndex() {
   const { t, i18n } = useTranslation();
   const { profile, signOut, refreshProfile } = useAuth();
   const { language, setLanguage } = useUI();
   const lang = i18n.language as 'en' | 'ar';
+
   const uploadAvatar = useUploadAvatar();
   const updateProfile = useUpdateProfile();
+  const notifications = usePushNotifications();
+  const { data: titleInfo } = useFanTitle();
+  const { data: arenaStreak } = useArenaStreak();
+
   const [uploading, setUploading] = useState(false);
   const [editingUsername, setEditingUsername] = useState(false);
   const [username, setUsername] = useState('');
   const [usernameError, setUsernameError] = useState('');
 
-  const notifications = usePushNotifications();
-
   useStreak();
 
   const userTeam = allTeams.find((t) => t.fifa_code === profile?.favorite_team_id);
+
+  // XP progress toward next level
+  const currentLevel = profile?.level || 1;
+  const currentXP = profile?.xp || 0;
+  const xpForThisLevel = getXPForLevel(currentLevel);
+  const xpForNextLevel = getXPForLevel(currentLevel + 1);
+  const xpProgress = xpForNextLevel > xpForThisLevel
+    ? Math.min(100, Math.round(((currentXP - xpForThisLevel) / (xpForNextLevel - xpForThisLevel)) * 100))
+    : 100;
 
   const handleSignOut = async () => {
     await signOut();
@@ -61,12 +92,8 @@ export default function ProfileIndex() {
     toast.success(lang === 'ar' ? 'تم نسخ الرابط!' : 'Link copied!');
   };
 
-  const { data: titleInfo } = useFanTitle();
-  const { data: arenaStreak } = useArenaStreak();
-
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    // Reset so the same file can be re-selected after an error
     e.target.value = '';
     if (!file || !profile) return;
     setUploading(true);
@@ -79,7 +106,7 @@ export default function ProfileIndex() {
     setUsername(val);
     if (!val) { setUsernameError(''); return; }
     if (!USERNAME_RE.test(val)) {
-      setUsernameError(lang === 'ar' ? '٢-٣٠ حرف: أرقام وحروف وشرطة سفلية فقط' : '2-30 chars: letters, numbers, underscore only');
+      setUsernameError(lang === 'ar' ? '٢-٣٠ حرف: أرقام وحروف وشرطة سفلية فقط' : '2-30 chars: letters, numbers, underscore');
     } else {
       setUsernameError('');
     }
@@ -89,11 +116,15 @@ export default function ProfileIndex() {
     const trimmed = username.trim();
     if (!trimmed || !profile) return;
     if (!USERNAME_RE.test(trimmed)) {
-      toast.error(lang === 'ar' ? 'اسم مستخدم غير صالح' : 'Invalid username format');
+      toast.error(lang === 'ar' ? 'اسم مستخدم غير صالح' : 'Invalid username');
       return;
     }
     const result = await updateProfile.mutate({ username: trimmed });
-    if (result !== null) { setEditingUsername(false); setUsernameError(''); await refreshProfile(); }
+    if (result !== null) {
+      setEditingUsername(false);
+      setUsernameError('');
+      await refreshProfile();
+    }
   };
 
   const handleToggleNotifications = async () => {
@@ -103,239 +134,260 @@ export default function ProfileIndex() {
     }
     if (notifications.enabled) {
       await notifications.unsubscribe();
-      toast.success(lang === 'ar' ? 'تم تعطيل الإشعارات' : 'Notifications disabled');
     } else {
       const granted = await notifications.requestPermission();
-      if (granted) {
-        toast.success(lang === 'ar' ? 'تم تفعيل الإشعارات!' : 'Notifications enabled!');
-      } else {
-        toast.error(lang === 'ar' ? 'تم رفض الإذن' : 'Permission denied');
-      }
+      if (!granted) toast.error(lang === 'ar' ? 'تم رفض الإذن' : 'Permission denied');
     }
   };
 
   return (
-    <div className="relative space-y-5">
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-        <h1 className="text-xl font-bold">{t('profile.title')}</h1>
-      </motion.div>
+    <div className="pb-8 space-y-4">
 
-      {/* Profile Card */}
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-        <div className="stadium-card text-center p-6 relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-b from-electric/[0.03] to-transparent pointer-events-none" />
-          <div className="relative">
-            <div className="relative inline-block group">
-              <div className="w-20 h-20 rounded-full bg-gradient-to-br from-electric to-neon mx-auto mb-3 flex items-center justify-center text-3xl shadow-lg worldcup-glow overflow-hidden ring-2 ring-white/10">
-                {profile?.avatar_url ? (
-                  <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  userTeam?.flag_emoji || '⚽'
-                )}
-              </div>
-              <label
-                htmlFor="avatar-file-input"
-                className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-electric hover:bg-electric-light flex items-center justify-center cursor-pointer text-xs shadow-lg transition-all hover:scale-105"
-              >
-                {uploading ? '⏳' : '📷'}
-              </label>
-              <input
-                id="avatar-file-input"
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleAvatarUpload}
-                disabled={uploading}
-              />
-            </div>
+      {/* ── Hero ── */}
+      <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }}>
+        <div className="relative rounded-3xl overflow-hidden bg-gradient-to-br from-electric/20 via-neon/10 to-transparent border border-white/[0.07]">
+          {/* top gradient band */}
+          <div className="h-20 bg-gradient-to-r from-electric/30 to-neon/20" />
 
-            {editingUsername ? (
-              <form
-                className="mb-2 space-y-2 px-4"
-                onSubmit={e => { e.preventDefault(); handleUpdateUsername(); }}
-              >
+          <div className="px-5 pb-5">
+            {/* Avatar — pulled up over the band */}
+            <div className="relative -mt-12 mb-3 flex items-end gap-4">
+              <div className="relative shrink-0">
+                <div className="w-24 h-24 rounded-full ring-4 ring-background bg-gradient-to-br from-electric to-neon flex items-center justify-center text-4xl shadow-xl overflow-hidden">
+                  {profile?.avatar_url
+                    ? <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" />
+                    : userTeam?.flag_emoji || '⚽'}
+                </div>
+                {/* upload button */}
+                <label
+                  htmlFor="avatar-file-input"
+                  className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-electric hover:bg-blue-500 flex items-center justify-center cursor-pointer text-sm shadow-lg transition-all active:scale-90"
+                >
+                  {uploading ? '⏳' : '📷'}
+                </label>
                 <input
-                  value={username}
-                  onChange={e => handleUsernameChange(e.target.value)}
-                  maxLength={30}
-                  autoFocus
-                  className={`w-full bg-white/5 border rounded-xl px-3 py-2 text-sm text-white text-center focus:outline-none transition-colors ${usernameError ? 'border-red-500' : 'border-white/10 focus:border-electric'}`}
-                  placeholder={profile?.username || 'Username'}
+                  id="avatar-file-input"
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleAvatarUpload}
+                  disabled={uploading}
                 />
-                {usernameError && <p className="text-[10px] text-red-400">{usernameError}</p>}
-                {updateProfile.error && <p className="text-[10px] text-red-400">{updateProfile.error}</p>}
-                <div className="flex gap-2">
-                  <button
-                    type="submit"
-                    disabled={!!usernameError || updateProfile.loading}
-                    className="flex-1 py-2 rounded-xl bg-neon/20 text-neon text-sm font-semibold hover:bg-neon/30 transition-all disabled:opacity-30"
-                  >
-                    {updateProfile.loading ? (lang === 'ar' ? 'جاري الحفظ...' : 'Saving…') : (lang === 'ar' ? 'حفظ' : 'Save')}
-                  </button>
+              </div>
+
+              {/* name + team */}
+              <div className="flex-1 min-w-0 mt-12">
+                {userTeam && (
+                  <div className="flex items-center gap-1 text-xs text-white/50 mb-0.5">
+                    <span>{userTeam.flag_emoji}</span>
+                    <span className="truncate">{lang === 'ar' ? userTeam.name_ar : userTeam.name_en}</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-1">
+                  <span className="text-base font-bold truncate">{profile?.username || 'Player'}</span>
                   <button
                     type="button"
-                    onClick={() => { setEditingUsername(false); setUsernameError(''); }}
-                    className="px-4 py-2 rounded-xl bg-white/10 text-white/50 text-sm hover:bg-white/20 transition-all"
+                    onClick={() => { setUsername(profile?.username || ''); setUsernameError(''); setEditingUsername(true); }}
+                    className="text-white/30 hover:text-electric transition-colors text-xs shrink-0"
+                    aria-label="Edit username"
                   >
-                    {lang === 'ar' ? 'إلغاء' : 'Cancel'}
+                    ✏️
                   </button>
                 </div>
-              </form>
-            ) : (
-              <h2 className="text-lg font-bold cursor-pointer hover:text-electric-light transition-colors" onClick={() => { setUsername(profile?.username || ''); setUsernameError(''); setEditingUsername(true); }}>
-                {profile?.username || 'Player'} <span className="text-xs text-white/20">✏️</span>
-              </h2>
-            )}
-            <p className="text-xs text-white/40">{lang === 'ar' ? 'عضو منذ' : 'Member since'} {profile?.created_at ? new Date(profile.created_at).toLocaleDateString() : 'today'}</p>
-            {userTeam && (
-              <div className="flex items-center justify-center gap-1.5 mt-2">
-                <span className="text-lg">{userTeam.flag_emoji}</span>
-                <span className="text-xs text-white/50">{lang === 'ar' ? userTeam.name_ar : userTeam.name_en}</span>
+                <p className="text-[10px] text-white/30">
+                  {lang === 'ar' ? 'عضو منذ' : 'Since'} {profile?.created_at ? new Date(profile.created_at).toLocaleDateString() : '—'}
+                </p>
+              </div>
+            </div>
+
+            {/* Fan title */}
+            {titleInfo && (
+              <div className="flex items-center gap-2 mt-1 bg-white/[0.04] rounded-2xl px-3 py-2">
+                <span className="text-xl">{titleInfo.icon}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold truncate">
+                    {lang === 'ar' ? titleInfo.title_ar : titleInfo.title_en}
+                  </p>
+                  <p className="text-[10px] text-white/40">
+                    🔥 {arenaStreak?.current_streak || 0}d streak
+                    {arenaStreak?.longest_streak ? ` · best ${arenaStreak.longest_streak}d` : ''}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigate('/arena')}
+                  className="text-xs text-electric hover:text-blue-400 shrink-0"
+                >
+                  {lang === 'ar' ? 'الساحة ←' : 'Arena →'}
+                </button>
               </div>
             )}
           </div>
         </div>
       </motion.div>
 
-      {/* Stats */}
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}
-        className="grid grid-cols-4 gap-2">
-        <div className="glass-card text-center py-2.5 px-1">
-          <div className="text-[9px] text-white-40/60 mb-0.5 truncate">{t('home.totalPoints')}</div>
-          <div className="text-base font-bold text-gold">{formatPoints(profile?.points || 0)}</div>
-        </div>
-        <div className="glass-card text-center py-2.5 px-1">
-          <div className="text-[9px] text-white-40/60 mb-0.5 truncate">{t('home.level')}</div>
-          <div className="text-base font-bold text-electric">{profile?.level || 1}</div>
-        </div>
-        <div className="glass-card text-center py-2.5 px-1">
-          <div className="text-[9px] text-white-40/60 mb-0.5 truncate">{t('common.xp')}</div>
-          <div className="text-base font-bold text-neon">{formatPoints(profile?.xp || 0)}</div>
-        </div>
-        <div className="glass-card text-center py-2.5 px-1">
-          <div className="text-[9px] text-white-40/60 mb-0.5 truncate">🔥</div>
-          <div className="text-base font-bold text-gold">{profile?.streak || 0}</div>
-        </div>
-      </motion.div>
-
-      {/* Fan Title */}
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }}>
-        <div className="stadium-card flex items-center gap-3">
-          <div className="text-3xl">{titleInfo?.icon || '🌱'}</div>
-          <div>
-            <div className="font-bold">{titleInfo ? (lang === 'ar' ? titleInfo.title_ar : titleInfo.title_en) : 'New Fan'}</div>
-            <div className="text-[10px] text-white/40">
-              {t('arena.yourTitle')} · 🔥 {arenaStreak?.current_streak || 0}d {t('arena.streak')}
-              {arenaStreak?.longest_streak ? ` · Best: ${arenaStreak.longest_streak}d` : ''}
-            </div>
+      {/* username edit modal overlay */}
+      {editingUsername && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm"
+          onClick={(e) => { if (e.target === e.currentTarget) { setEditingUsername(false); setUsernameError(''); } }}
+        >
+          <div className="w-full max-w-sm bg-[#0f1620] border border-white/10 rounded-3xl p-5 shadow-2xl">
+            <h3 className="text-sm font-bold mb-3 text-center">{lang === 'ar' ? 'تعديل اسم المستخدم' : 'Edit Username'}</h3>
+            <form
+              onSubmit={(e) => { e.preventDefault(); handleUpdateUsername(); }}
+              className="space-y-3"
+            >
+              <input
+                value={username}
+                onChange={(e) => handleUsernameChange(e.target.value)}
+                maxLength={30}
+                autoFocus
+                placeholder={profile?.username || 'username'}
+                className={`w-full bg-white/5 border rounded-2xl px-4 py-3 text-sm text-white text-center focus:outline-none transition-colors ${usernameError ? 'border-red-500' : 'border-white/10 focus:border-electric'}`}
+              />
+              {usernameError && <p className="text-xs text-red-400 text-center">{usernameError}</p>}
+              {updateProfile.error && <p className="text-xs text-red-400 text-center">{updateProfile.error}</p>}
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => { setEditingUsername(false); setUsernameError(''); }}
+                  className="flex-1 py-3 rounded-2xl bg-white/10 text-white/60 text-sm font-semibold hover:bg-white/15 transition-all"
+                >
+                  {lang === 'ar' ? 'إلغاء' : 'Cancel'}
+                </button>
+                <button
+                  type="submit"
+                  disabled={!!usernameError || updateProfile.loading}
+                  className="flex-1 py-3 rounded-2xl bg-electric text-white text-sm font-semibold hover:bg-blue-500 transition-all disabled:opacity-40"
+                >
+                  {updateProfile.loading ? (lang === 'ar' ? 'جاري الحفظ…' : 'Saving…') : (lang === 'ar' ? 'حفظ' : 'Save')}
+                </button>
+              </div>
+            </form>
           </div>
-          <button onClick={() => navigate('/arena')} className="ml-auto text-xs text-electric hover:text-electric-light">
-            {lang === 'ar' ? 'الساحة' : 'Arena'} →
-          </button>
-        </div>
-      </motion.div>
-
-      {/* Referrals */}
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-        <div className="stadium-card">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-sm">🔗</span>
-            <h3 className="text-sm font-bold">{t('profile.referrals')}</h3>
-          </div>
-          <p className="text-xs text-white/40 mb-3">
-            {lang === 'ar' ? 'ادع أصدقائك واربح 200 نقطة لكل صديق' : 'Invite friends and earn 200 points each'}
-          </p>
-          <div className="flex items-center gap-2">
-            <input readOnly value={`${window.location.origin}/signup?ref=${profile?.username || 'player'}`}
-              className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2 text-xs text-white/40" />
-            <Button variant="primary" size="sm" onClick={copyReferralLink}>
-              {lang === 'ar' ? 'نسخ' : 'Copy'}
-            </Button>
-          </div>
-        </div>
-      </motion.div>
-
-      {/* Notifications */}
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
-        <div className="stadium-card" style={{ borderColor: notifications.enabled ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255,255,255,0.06)' }}>
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <span className="text-sm">🔔</span>
-              <h3 className="text-sm font-bold">{t('profile.notifications')}</h3>
-            </div>
-            <span className={`text-[10px] px-2 py-0.5 rounded-full ${notifications.enabled ? 'bg-neon/15 text-neon' : 'bg-white/5 text-white/30'}`}>
-              {notifications.enabled ? 'ON' : 'OFF'}
-            </span>
-          </div>
-          <p className="text-xs text-white/40 mb-3">{t('profile.pushPermission')}</p>
-
-          <Button
-            variant={notifications.enabled ? 'ghost' : 'neon'}
-            size="sm"
-            className="w-full"
-            onClick={handleToggleNotifications}
-            disabled={notifications.permission === 'unsupported'}
-          >
-            {notifications.permission === 'unsupported'
-              ? (lang === 'ar' ? 'غير مدعوم' : 'Unsupported')
-              : notifications.enabled
-                ? (lang === 'ar' ? 'تعطيل الإشعارات' : 'Disable Notifications')
-                : (lang === 'ar' ? 'تفعيل الإشعارات' : 'Enable Notifications')}
-          </Button>
-
-          {notifications.permission === 'denied' && (
-            <div className="flex items-center gap-2 mt-2 text-xs text-red-400 bg-red-500/10 rounded-lg px-3 py-2">
-              <span>⚠️</span>
-              <span>{lang === 'ar' ? 'الإشعارات مرفوضة. فعّلها من إعدادات المتصفح.' : 'Notifications blocked. Enable in browser settings.'}</span>
-            </div>
-          )}
-
-          {notifications.enabled && (
-            <div className="flex items-center gap-2 mt-2 text-xs text-neon bg-neon/5 rounded-lg px-3 py-2">
-              <span>✓</span>
-              <span>{lang === 'ar' ? 'الإشعارات مفعلة - سيتم تذكيرك بالمباريات' : 'Notifications active - you\'ll get match reminders'}</span>
-            </div>
-          )}
-        </div>
-      </motion.div>
-
-      {/* Language */}
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-        <div className="stadium-card">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-sm">🌐</span>
-            <h3 className="text-sm font-bold">{t('profile.language')}</h3>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={() => setLanguage('en')}
-              className={`flex-1 py-2 rounded-xl text-sm transition-all ${language === 'en' ? 'bg-electric text-white shadow-[0_0_12px_rgba(37,99,235,0.3)]' : 'bg-white/[0.04] text-white/40 hover:text-white/60'}`}>
-              English
-            </button>
-            <button onClick={() => setLanguage('ar')}
-              className={`flex-1 py-2 rounded-xl text-sm transition-all ${language === 'ar' ? 'bg-electric text-white shadow-[0_0_12px_rgba(37,99,235,0.3)]' : 'bg-white/[0.04] text-white/40 hover:text-white/60'}`}>
-              العربية
-            </button>
-          </div>
-        </div>
-      </motion.div>
-
-      {/* Admin link */}
-      {profile?.role === 'admin' && (
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
-          <Button variant="ghost" className="w-full" onClick={() => navigate('/admin')}>
-            📊 {lang === 'ar' ? 'لوحة الإدارة' : 'Admin Dashboard'}
-          </Button>
         </motion.div>
       )}
 
-      {/* Logout */}
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-        <Button variant="danger" size="lg" className="w-full" onClick={handleSignOut}>
-          {t('profile.logout')}
-        </Button>
+      {/* ── Stats ── */}
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+        <div className="grid grid-cols-4 gap-2">
+          <StatPill label={lang === 'ar' ? 'نقاط' : 'Points'} value={formatPoints(profile?.points || 0)} color="text-gold" />
+          <StatPill label={lang === 'ar' ? 'مستوى' : 'Level'} value={currentLevel} color="text-electric" />
+          <StatPill label="XP" value={formatPoints(currentXP)} color="text-neon" />
+          <StatPill label={lang === 'ar' ? 'يومياً' : 'Streak'} value={`${profile?.streak || 0}🔥`} color="text-gold" />
+        </div>
       </motion.div>
 
-      <div className="pb-4" />
+      {/* ── XP Progress ── */}
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }}>
+        <div className="bg-white/[0.04] rounded-2xl px-4 py-3">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-[11px] text-white/50">{lang === 'ar' ? `المستوى ${currentLevel}` : `Level ${currentLevel}`}</span>
+            <span className="text-[11px] text-white/50">{xpProgress}% → {lang === 'ar' ? `مستوى ${currentLevel + 1}` : `Lv ${currentLevel + 1}`}</span>
+          </div>
+          <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${xpProgress}%` }}
+              transition={{ duration: 0.8, ease: 'easeOut', delay: 0.2 }}
+              className="h-full bg-gradient-to-r from-electric to-neon rounded-full"
+            />
+          </div>
+        </div>
+      </motion.div>
+
+      {/* ── Settings card ── */}
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+        <div className="bg-white/[0.04] rounded-3xl overflow-hidden divide-y divide-white/[0.06]">
+
+          {/* Language */}
+          <div className="px-4 py-3.5 flex items-center gap-3">
+            <span className="text-lg w-7 text-center">🌐</span>
+            <span className="flex-1 text-sm font-medium">{lang === 'ar' ? 'اللغة' : 'Language'}</span>
+            <div className="flex gap-1 bg-white/[0.06] rounded-xl p-0.5">
+              <button
+                type="button"
+                onClick={() => setLanguage('en')}
+                className={`px-3 py-1 rounded-[10px] text-xs font-semibold transition-all ${language === 'en' ? 'bg-electric text-white shadow' : 'text-white/40 hover:text-white/70'}`}
+              >
+                EN
+              </button>
+              <button
+                type="button"
+                onClick={() => setLanguage('ar')}
+                className={`px-3 py-1 rounded-[10px] text-xs font-semibold transition-all ${language === 'ar' ? 'bg-electric text-white shadow' : 'text-white/40 hover:text-white/70'}`}
+              >
+                AR
+              </button>
+            </div>
+          </div>
+
+          {/* Notifications */}
+          <div className="px-4 py-3.5 flex items-center gap-3">
+            <span className="text-lg w-7 text-center">🔔</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium">{lang === 'ar' ? 'الإشعارات' : 'Notifications'}</p>
+              {notifications.permission === 'denied' && (
+                <p className="text-[10px] text-red-400">{lang === 'ar' ? 'مرفوضة في المتصفح' : 'Blocked in browser'}</p>
+              )}
+            </div>
+            {notifications.permission === 'unsupported'
+              ? <span className="text-[10px] text-white/30">{lang === 'ar' ? 'غير مدعوم' : 'Unsupported'}</span>
+              : <ToggleSwitch enabled={notifications.enabled} onChange={handleToggleNotifications} />
+            }
+          </div>
+
+          {/* Referral */}
+          <div className="px-4 py-3.5">
+            <div className="flex items-center gap-3 mb-2">
+              <span className="text-lg w-7 text-center">🔗</span>
+              <div className="flex-1">
+                <p className="text-sm font-medium">{lang === 'ar' ? 'دعوة صديق' : 'Invite Friend'}</p>
+                <p className="text-[10px] text-white/40">{lang === 'ar' ? '+٢٠٠ نقطة لكل صديق' : '+200 pts per friend'}</p>
+              </div>
+              <button
+                type="button"
+                onClick={copyReferralLink}
+                className="px-3 py-1.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.12] text-xs font-semibold transition-all active:scale-95"
+              >
+                {lang === 'ar' ? 'نسخ' : 'Copy'}
+              </button>
+            </div>
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl px-3 py-2 text-[10px] text-white/30 truncate select-all">
+              {`${window.location.origin}/signup?ref=${profile?.username || 'player'}`}
+            </div>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* ── Admin ── */}
+      {profile?.role === 'admin' && (
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+          <button
+            type="button"
+            onClick={() => navigate('/admin')}
+            className="w-full flex items-center gap-3 bg-white/[0.04] hover:bg-white/[0.07] rounded-2xl px-4 py-3.5 transition-all"
+          >
+            <span className="text-lg">📊</span>
+            <span className="flex-1 text-sm font-medium text-left">{lang === 'ar' ? 'لوحة الإدارة' : 'Admin Dashboard'}</span>
+            <span className="text-white/30 text-xs">→</span>
+          </button>
+        </motion.div>
+      )}
+
+      {/* ── Sign Out ── */}
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18 }}>
+        <button
+          type="button"
+          onClick={handleSignOut}
+          className="w-full py-3.5 rounded-2xl bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 text-sm font-semibold transition-all active:scale-[0.98] border border-red-500/20"
+        >
+          {t('profile.logout')}
+        </button>
+      </motion.div>
     </div>
   );
 }
