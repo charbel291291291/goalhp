@@ -394,3 +394,65 @@ BEGIN
   END IF;
 END;
 $$;
+
+-- ============================================================
+-- PROFILE SECTION FIXES
+-- ============================================================
+
+-- HIGH-1: Block role escalation via direct PostgREST PATCH
+-- The profiles UPDATE RLS policy allows users to update their own row
+-- but has no column restriction — without this trigger a user can
+-- PATCH {"role":"admin"} and succeed.
+CREATE OR REPLACE FUNCTION prevent_role_escalation()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  IF NEW.role IS DISTINCT FROM OLD.role THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'
+    ) THEN
+      RAISE EXCEPTION 'Insufficient privileges to change role';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_prevent_role_escalation ON profiles;
+CREATE TRIGGER trg_prevent_role_escalation
+  BEFORE UPDATE ON profiles
+  FOR EACH ROW EXECUTE FUNCTION prevent_role_escalation();
+
+-- MEDIUM-2: record_daily_visit — server-side streak tracking
+-- Adds last_visit_date column if missing, then atomically increments
+-- or resets the streak based on whether the visit is consecutive.
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS last_visit_date DATE;
+
+CREATE OR REPLACE FUNCTION record_daily_visit()
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  v_user_id   UUID;
+  v_last_date DATE;
+  v_today     DATE := CURRENT_DATE;
+BEGIN
+  v_user_id := auth.uid();
+  IF v_user_id IS NULL THEN RETURN; END IF;
+
+  SELECT last_visit_date INTO v_last_date FROM profiles WHERE id = v_user_id;
+
+  IF v_last_date = v_today THEN
+    RETURN; -- Already recorded today
+  END IF;
+
+  IF v_last_date = v_today - 1 THEN
+    UPDATE profiles
+      SET streak = streak + 1, last_visit_date = v_today
+      WHERE id = v_user_id;
+  ELSE
+    UPDATE profiles
+      SET streak = 1, last_visit_date = v_today
+      WHERE id = v_user_id;
+  END IF;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION record_daily_visit TO authenticated;

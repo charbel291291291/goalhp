@@ -16,22 +16,19 @@ function navigate(path: string) {
   window.dispatchEvent(new PopStateEvent('popstate'));
 }
 
+import { supabase } from '../../lib/supabase';
+
+// Module-level flag so the RPC fires at most once per page session
+let _streakRecorded = false;
+
+const USERNAME_RE = /^[a-zA-Z0-9_]{2,30}$/;
+
 function useStreak() {
   const { profile, refreshProfile } = useAuth();
   useEffect(() => {
-    if (!profile) return;
-    const lastVisit = localStorage.getItem('quizgoal_last_visit');
-    const today = new Date().toDateString();
-
-    if (lastVisit !== today) {
-      const yesterday = new Date(Date.now() - 86400000).toDateString();
-      if (lastVisit === yesterday) {
-        localStorage.setItem('quizgoal_last_visit', today);
-      } else if (lastVisit !== today) {
-        localStorage.setItem('quizgoal_last_visit', today);
-      }
-      refreshProfile();
-    }
+    if (!profile || _streakRecorded) return;
+    _streakRecorded = true;
+    supabase.rpc('record_daily_visit').then(() => refreshProfile());
   }, [profile?.id, refreshProfile]);
 }
 
@@ -45,6 +42,7 @@ export default function ProfileIndex() {
   const [uploading, setUploading] = useState(false);
   const [editingUsername, setEditingUsername] = useState(false);
   const [username, setUsername] = useState('');
+  const [usernameError, setUsernameError] = useState('');
 
   const notifications = usePushNotifications();
 
@@ -77,10 +75,25 @@ export default function ProfileIndex() {
     setUploading(false);
   };
 
+  const handleUsernameChange = (val: string) => {
+    setUsername(val);
+    if (!val) { setUsernameError(''); return; }
+    if (!USERNAME_RE.test(val)) {
+      setUsernameError(lang === 'ar' ? '٢-٣٠ حرف: أرقام وحروف وشرطة سفلية فقط' : '2-30 chars: letters, numbers, underscore only');
+    } else {
+      setUsernameError('');
+    }
+  };
+
   const handleUpdateUsername = async () => {
-    if (!username.trim() || !profile) return;
-    const result = await updateProfile.mutate({ username: username.trim() });
-    if (result !== null) { setEditingUsername(false); await refreshProfile(); }
+    const trimmed = username.trim();
+    if (!trimmed || !profile) return;
+    if (!USERNAME_RE.test(trimmed)) {
+      toast.error(lang === 'ar' ? 'اسم مستخدم غير صالح' : 'Invalid username format');
+      return;
+    }
+    const result = await updateProfile.mutate({ username: trimmed });
+    if (result !== null) { setEditingUsername(false); setUsernameError(''); await refreshProfile(); }
   };
 
   const handleToggleNotifications = async () => {
@@ -127,12 +140,19 @@ export default function ProfileIndex() {
             </div>
 
             {editingUsername ? (
-              <div className="flex items-center justify-center gap-2 mb-2">
-                <input value={username} onChange={e => setUsername(e.target.value)}
-                  className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-sm text-white w-32 text-center focus:outline-none focus:border-electric"
-                  placeholder={profile?.username || 'Username'} />
-                <button onClick={handleUpdateUsername} className="text-xs text-neon hover:text-neon-light">✓</button>
-                <button onClick={() => setEditingUsername(false)} className="text-xs text-white/30 hover:text-white/50">✕</button>
+              <div className="mb-2">
+                <div className="flex items-center justify-center gap-2">
+                  <input
+                    value={username}
+                    onChange={e => handleUsernameChange(e.target.value)}
+                    maxLength={30}
+                    className={`bg-white/5 border rounded-lg px-2 py-1 text-sm text-white w-32 text-center focus:outline-none transition-colors ${usernameError ? 'border-red-500' : 'border-white/10 focus:border-electric'}`}
+                    placeholder={profile?.username || 'Username'}
+                  />
+                  <button onClick={handleUpdateUsername} disabled={!!usernameError} className="text-xs text-neon hover:text-neon-light disabled:opacity-30">✓</button>
+                  <button onClick={() => { setEditingUsername(false); setUsernameError(''); }} className="text-xs text-white/30 hover:text-white/50">✕</button>
+                </div>
+                {usernameError && <p className="text-[10px] text-red-400 mt-1">{usernameError}</p>}
               </div>
             ) : (
               <h2 className="text-lg font-bold cursor-pointer hover:text-electric-light transition-colors" onClick={() => { setUsername(profile?.username || ''); setEditingUsername(true); }}>
