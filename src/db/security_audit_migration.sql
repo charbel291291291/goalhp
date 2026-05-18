@@ -381,6 +381,16 @@ END;
 $$;
 
 -- MEDIUM-1: Enforce 500-character limit on friend_messages
-ALTER TABLE friend_messages
-  ADD CONSTRAINT IF NOT EXISTS friend_messages_length_check
-  CHECK (char_length(message) <= 500);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'friend_messages_length_check'
+      AND conrelid = 'friend_messages'::regclass
+  ) THEN
+    ALTER TABLE friend_messages
+      ADD CONSTRAINT friend_messages_length_check
+      CHECK (char_length(message) <= 500);
+  END IF;
+END;
+$$;
