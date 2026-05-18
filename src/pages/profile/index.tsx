@@ -158,21 +158,13 @@ export default function ProfileIndex() {
                     ? <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" />
                     : userTeam?.flag_emoji || '⚽'}
                 </div>
-                {/* upload button */}
+                {/* upload button — label references input rendered at page root (outside overflow:hidden) */}
                 <label
                   htmlFor="avatar-file-input"
                   className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-electric hover:bg-blue-500 flex items-center justify-center cursor-pointer text-sm shadow-lg transition-all active:scale-90"
                 >
                   {uploading ? '⏳' : '📷'}
                 </label>
-                <input
-                  id="avatar-file-input"
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handleAvatarUpload}
-                  disabled={uploading}
-                />
               </div>
 
               {/* name + team */}
@@ -244,7 +236,6 @@ export default function ProfileIndex() {
                 value={username}
                 onChange={(e) => handleUsernameChange(e.target.value)}
                 maxLength={30}
-                autoFocus
                 placeholder={profile?.username || 'username'}
                 className={`w-full bg-white/5 border rounded-2xl px-4 py-3 text-sm text-white text-center focus:outline-none transition-colors ${usernameError ? 'border-red-500' : 'border-white/10 focus:border-electric'}`}
               />
@@ -261,6 +252,7 @@ export default function ProfileIndex() {
                 <button
                   type="submit"
                   disabled={!!usernameError || updateProfile.loading}
+                  onMouseDown={(e) => e.preventDefault()}
                   className="flex-1 py-3 rounded-2xl bg-electric text-white text-sm font-semibold hover:bg-blue-500 transition-all disabled:opacity-40"
                 >
                   {updateProfile.loading ? (lang === 'ar' ? 'جاري الحفظ…' : 'Saving…') : (lang === 'ar' ? 'حفظ' : 'Save')}
@@ -388,6 +380,16 @@ export default function ProfileIndex() {
           {t('profile.logout')}
         </button>
       </motion.div>
+
+      {/* File input lives here — outside every overflow:hidden container so Android can open the picker */}
+      <input
+        id="avatar-file-input"
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleAvatarUpload}
+        disabled={uploading}
+      />
     </div>
   );
 }
