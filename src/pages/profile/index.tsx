@@ -218,49 +218,48 @@ export default function ProfileIndex() {
         </div>
       </motion.div>
 
-      {/* username edit modal overlay */}
+      {/* Username edit — top-anchored sheet, plain DOM (no framer-motion, no backdrop-filter)
+          Android Chrome's visual viewport changes when the soft keyboard opens; flex-centered
+          modals reflow and tap targets shift. Top-anchored fixed position stays stable. */}
       {editingUsername && (
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm"
-          onClick={(e) => { if (e.target === e.currentTarget) { setEditingUsername(false); setUsernameError(''); } }}
-        >
-          <div className="w-full max-w-sm bg-[#0f1620] border border-white/10 rounded-3xl p-5 shadow-2xl">
-            <h3 className="text-sm font-bold mb-3 text-center">{lang === 'ar' ? 'تعديل اسم المستخدم' : 'Edit Username'}</h3>
-            <form
-              onSubmit={(e) => { e.preventDefault(); handleUpdateUsername(); }}
-              className="space-y-3"
-            >
+        <>
+          <div
+            className="fixed inset-0 z-40 bg-black/70"
+            onClick={() => { setEditingUsername(false); setUsernameError(''); }}
+          />
+          <div className="fixed left-4 right-4 top-20 z-50 mx-auto max-w-sm">
+            <div className="bg-[#0f1620] border border-white/10 rounded-3xl p-5 shadow-2xl">
+              <h3 className="text-sm font-bold mb-3 text-center">{lang === 'ar' ? 'تعديل اسم المستخدم' : 'Edit Username'}</h3>
               <input
+                type="text"
                 value={username}
                 onChange={(e) => handleUsernameChange(e.target.value)}
                 maxLength={30}
                 placeholder={profile?.username || 'username'}
                 className={`w-full bg-white/5 border rounded-2xl px-4 py-3 text-sm text-white text-center focus:outline-none transition-colors ${usernameError ? 'border-red-500' : 'border-white/10 focus:border-electric'}`}
               />
-              {usernameError && <p className="text-xs text-red-400 text-center">{usernameError}</p>}
-              {updateProfile.error && <p className="text-xs text-red-400 text-center">{updateProfile.error}</p>}
-              <div className="flex gap-2 pt-1">
+              {usernameError && <p className="text-xs text-red-400 text-center mt-2">{usernameError}</p>}
+              {updateProfile.error && <p className="text-xs text-red-400 text-center mt-2">{updateProfile.error}</p>}
+              <div className="flex gap-2 mt-3">
                 <button
                   type="button"
-                  onClick={() => { setEditingUsername(false); setUsernameError(''); }}
-                  className="flex-1 py-3 rounded-2xl bg-white/10 text-white/60 text-sm font-semibold hover:bg-white/15 transition-all"
+                  onClick={(e) => { e.stopPropagation(); setEditingUsername(false); setUsernameError(''); }}
+                  className="flex-1 py-3 rounded-2xl bg-white/10 text-white/60 text-sm font-semibold active:bg-white/20"
                 >
                   {lang === 'ar' ? 'إلغاء' : 'Cancel'}
                 </button>
                 <button
-                  type="submit"
+                  type="button"
                   disabled={!!usernameError || updateProfile.loading}
-                  onMouseDown={(e) => e.preventDefault()}
-                  className="flex-1 py-3 rounded-2xl bg-electric text-white text-sm font-semibold hover:bg-blue-500 transition-all disabled:opacity-40"
+                  onClick={(e) => { e.stopPropagation(); handleUpdateUsername(); }}
+                  className="flex-1 py-3 rounded-2xl bg-electric text-white text-sm font-semibold active:bg-blue-500 disabled:opacity-40"
                 >
                   {updateProfile.loading ? (lang === 'ar' ? 'جاري الحفظ…' : 'Saving…') : (lang === 'ar' ? 'حفظ' : 'Save')}
                 </button>
               </div>
-            </form>
+            </div>
           </div>
-        </motion.div>
+        </>
       )}
 
       {/* ── Stats ── */}
@@ -381,14 +380,26 @@ export default function ProfileIndex() {
         </button>
       </motion.div>
 
-      {/* File input lives here — outside every overflow:hidden container so Android can open the picker */}
+      {/* Visually-hidden file input at page root. Using `display:none` (Tailwind `hidden`)
+          can prevent the picker from opening on some Android Chrome versions; clip-path
+          keeps the element in the layout tree so the label's click reliably forwards. */}
       <input
         id="avatar-file-input"
         type="file"
         accept="image/*"
-        className="hidden"
         onChange={handleAvatarUpload}
         disabled={uploading}
+        style={{
+          position: 'absolute',
+          width: 1,
+          height: 1,
+          padding: 0,
+          margin: -1,
+          overflow: 'hidden',
+          clip: 'rect(0, 0, 0, 0)',
+          whiteSpace: 'nowrap',
+          border: 0,
+        }}
       />
     </div>
   );
