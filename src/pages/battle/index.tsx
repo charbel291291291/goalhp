@@ -2,15 +2,19 @@ import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../../components/common/Button';
 import { Card } from '../../components/common/Card';
+import { useLeaderboard } from '../../lib/useData';
 
 function navigate(path: string) {
   window.history.pushState({}, '', path);
   window.dispatchEvent(new PopStateEvent('popstate'));
 }
 
+const MEDAL: Record<number, string> = { 0: '🥇', 1: '🥈', 2: '🥉' };
+
 export default function BattleIndex() {
   const { t, i18n } = useTranslation();
   const lang = i18n.language as 'en' | 'ar';
+  const { data: topPlayers } = useLeaderboard(3);
 
   const modes = [
     { id: 'solo', icon: '⚡', en: 'Solo Sprint', ar: 'سباق فردي', desc_en: 'Play solo against the clock', desc_ar: 'العب منفرداً ضد الوقت', color: 'from-blue-500/20 to-blue-600/10', path: '/battle/solo' },
@@ -54,7 +58,7 @@ export default function BattleIndex() {
         ))}
       </div>
 
-      {/* Leaderboard Preview */}
+      {/* Live leaderboard preview */}
       <Card>
         <div className="flex items-center justify-between mb-3">
           <div className="text-xs text-white/40 uppercase tracking-wider">{lang === 'ar' ? 'أفضل اللاعبين' : 'Top Players'}</div>
@@ -62,20 +66,26 @@ export default function BattleIndex() {
             {lang === 'ar' ? 'عرض الكل' : 'View All'}
           </Button>
         </div>
-        {[
-          { rank: 1, name: 'CristianoFan', flag: '🇵🇹', points: 12500 },
-          { rank: 2, name: 'MessiGOAT', flag: '🇦🇷', points: 11800 },
-          { rank: 3, name: 'LebanonStar', flag: '🇱🇧', points: 10200 },
-        ].map((player) => (
-          <div key={player.rank} className="flex items-center justify-between py-2 text-sm">
-            <div className="flex items-center gap-3">
-              <span className={`w-6 text-center font-bold ${player.rank <= 3 ? 'text-gold' : 'text-white/40'}`}>#{player.rank}</span>
-              <span>{player.flag}</span>
-              <span className="text-white/80">{player.name}</span>
-            </div>
-            <span className="text-gold font-medium">{player.points.toLocaleString()}</span>
+        {!topPlayers || topPlayers.length === 0 ? (
+          <div className="text-center py-4 text-white/30 text-sm">
+            {lang === 'ar' ? 'لا يوجد لاعبون بعد' : 'No players yet'}
           </div>
-        ))}
+        ) : (
+          topPlayers.map((player, i) => (
+            <div key={player.id} className="flex items-center justify-between py-2 text-sm">
+              <div className="flex items-center gap-3">
+                <span className="w-6 text-center">{MEDAL[i]}</span>
+                {player.avatar_url ? (
+                  <img src={player.avatar_url} alt="" className="w-5 h-5 rounded-full object-cover" />
+                ) : (
+                  <span>{player.flag_emoji || '👤'}</span>
+                )}
+                <span className="text-white/80">{player.username || 'Anonymous'}</span>
+              </div>
+              <span className="text-gold font-medium">{(player.points || 0).toLocaleString()}</span>
+            </div>
+          ))
+        )}
       </Card>
     </div>
   );

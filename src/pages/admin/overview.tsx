@@ -99,7 +99,7 @@ export default function AdminOverview() {
               { label: 'Add Match', icon: '⚽', href: '/admin/matches' },
               { label: 'Add Sponsor', icon: '🤝', href: '/admin/sponsors' },
               { label: 'Add Reward', icon: '🎁', href: '/admin/rewards' },
-              { label: lang === 'ar' ? 'البلاغات' : 'Reports', icon: '🚩', href: '/admin/reports' },
+              { label: lang === 'ar' ? 'البلاغات' : 'Reports', icon: '🚩', href: '/admin/users' },
               { label: lang === 'ar' ? 'الإعدادات' : 'Settings', icon: '⚙️', href: '/admin/settings' },
             ].map((action) => (
               <button key={action.label} onClick={() => navigate(action.href)}
