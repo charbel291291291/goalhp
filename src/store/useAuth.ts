@@ -8,6 +8,10 @@ const INIT_TIMEOUT = 8000;
 const PROFILE_COLUMNS =
   'id, username, user_code, full_name, avatar_url, favorite_team_id, country, region, language, role, points, xp, level, streak, created_at, updated_at';
 
+// Fallback without user_code for databases that haven't run the migration yet
+const PROFILE_COLUMNS_FALLBACK =
+  'id, username, full_name, avatar_url, favorite_team_id, country, region, language, role, points, xp, level, streak, created_at, updated_at';
+
 let _initStarted = false;
 
 interface AuthState {
@@ -21,6 +25,23 @@ interface AuthState {
   init: () => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+}
+
+// If the DB doesn't have user_code yet, the full SELECT fails and data is null.
+// This helper retries with the fallback column list so the profile always loads.
+async function fetchProfile(userId: string): Promise<Profile | null> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select(PROFILE_COLUMNS)
+    .eq('id', userId)
+    .single();
+  if (!error) return data as Profile | null;
+  const { data: fallback } = await supabase
+    .from('profiles')
+    .select(PROFILE_COLUMNS_FALLBACK)
+    .eq('id', userId)
+    .single();
+  return fallback as Profile | null;
 }
 
 // Build the upsert payload for a user. Always ensures the profile row exists.
@@ -65,12 +86,8 @@ export const useAuth = create<AuthState>((set, get) => ({
       if (user) {
         const { payload, ignoreDuplicates } = buildProfileUpsert(user);
         await supabase.from('profiles').upsert(payload, { onConflict: 'id', ignoreDuplicates });
-        const { data } = await supabase
-          .from('profiles')
-          .select(PROFILE_COLUMNS)
-          .eq('id', user.id)
-          .single();
-        set({ profile: data as Profile | null });
+        const profile = await fetchProfile(user.id);
+        set({ profile });
       }
     } catch {
       // network error — continue without user
@@ -85,12 +102,8 @@ export const useAuth = create<AuthState>((set, get) => ({
       if (user) {
         const { payload, ignoreDuplicates } = buildProfileUpsert(user);
         await supabase.from('profiles').upsert(payload, { onConflict: 'id', ignoreDuplicates });
-        const { data } = await supabase
-          .from('profiles')
-          .select(PROFILE_COLUMNS)
-          .eq('id', user.id)
-          .single();
-        set({ profile: data as Profile | null });
+        const profile = await fetchProfile(user.id);
+        set({ profile });
       } else {
         set({ profile: null });
       }
@@ -103,11 +116,7 @@ export const useAuth = create<AuthState>((set, get) => ({
   refreshProfile: async () => {
     const { profile } = get();
     if (!profile) return;
-    const { data } = await supabase
-      .from('profiles')
-      .select(PROFILE_COLUMNS)
-      .eq('id', profile.id)
-      .single();
-    if (data) set({ profile: data as Profile });
+    const updated = await fetchProfile(profile.id);
+    if (updated) set({ profile: updated });
   },
 }));
