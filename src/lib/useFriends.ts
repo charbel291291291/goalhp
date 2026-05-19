@@ -38,17 +38,23 @@ export function useFriends() {
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    if (!profile) return;
+    if (!profile) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
-    const [friendsRes, requestsRes, invitesRes] = await Promise.all([
-      supabase.rpc('get_friends'),
-      supabase.rpc('get_pending_requests'),
-      supabase.rpc('get_pending_invites'),
-    ]);
-    if (friendsRes.data) setFriends(friendsRes.data);
-    if (requestsRes.data) setPendingRequests(requestsRes.data);
-    if (invitesRes.data) setPendingInvites(invitesRes.data);
-    setLoading(false);
+    try {
+      const [friendsRes, requestsRes, invitesRes] = await Promise.all([
+        supabase.rpc('get_friends'),
+        supabase.rpc('get_pending_requests'),
+        supabase.rpc('get_pending_invites'),
+      ]);
+      if (friendsRes.data) setFriends(friendsRes.data);
+      if (requestsRes.data) setPendingRequests(requestsRes.data);
+      if (invitesRes.data) setPendingInvites(invitesRes.data);
+    } finally {
+      setLoading(false);
+    }
   }, [profile]);
 
   useEffect(() => {
