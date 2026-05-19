@@ -44,15 +44,22 @@ export default function Signup() {
     if (err) { setUsernameError(err); return; }
     setLoading(true);
     try {
+      const trimmedUsername = username.trim();
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        // username stored in raw_user_meta_data — read by both the DB trigger
-        // (fix_profile_trigger.sql) and the onAuthStateChange handler in useAuth.ts
-        options: { data: { username: username.trim(), language: i18n.language } },
+        options: { data: { username: trimmedUsername, language: i18n.language } },
       });
       if (error) throw error;
       if (!data.user) throw new Error('Signup failed — please try again');
+
+      // Belt-and-suspenders write: even if the DB trigger or auth handler hasn't
+      // fired yet, this guarantees the username is saved on the profile row.
+      // onConflict + no ignoreDuplicates means UPDATE on existing row.
+      await supabase.from('profiles').upsert(
+        { id: data.user.id, username: trimmedUsername, language: i18n.language },
+        { onConflict: 'id' }
+      );
       navigate('/onboarding');
     } catch (err: unknown) {
       toast.error(getErrorMessage(err) || 'Signup failed');

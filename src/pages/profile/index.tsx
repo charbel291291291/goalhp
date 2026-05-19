@@ -71,6 +71,18 @@ export default function ProfileIndex() {
 
   useStreak();
 
+  // Self-healing: if profile loaded but username is missing (signup race or stale data),
+  // auto-open the editor so the user can set it directly. No more "Player" forever.
+  useEffect(() => {
+    if (!profile) return;
+    const u = (profile.username || '').trim();
+    if (!u || u.toLowerCase() === 'player') {
+      setUsername('');
+      setUsernameError('');
+      setEditingUsername(true);
+    }
+  }, [profile?.id, profile?.username]);
+
   const userTeam = allTeams.find((t) => t.fifa_code === profile?.favorite_team_id);
 
   // XP progress toward next level
