@@ -3,6 +3,8 @@
 -- Run in: Supabase Dashboard → SQL Editor → New Query
 -- =====================================================================
 
+DROP FUNCTION IF EXISTS submit_prediction(uuid,text,uuid,integer,integer,uuid,text);
+
 CREATE OR REPLACE FUNCTION submit_prediction(
   match_id               UUID,
   prediction_type        TEXT,
