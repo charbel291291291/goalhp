@@ -54,11 +54,13 @@ export default function Signup() {
       });
       if (error) throw error;
       if (data.user) {
-        await supabase.from('profiles').insert({
-          id: data.user.id,
-          username,
-          language: i18n.language,
-        });
+        // Use upsert (not insert) to handle the race where onAuthStateChange
+        // may have already created the profile row with id-only. ignoreDuplicates:false
+        // ensures we always write the username even if the row pre-exists.
+        await supabase.from('profiles').upsert(
+          { id: data.user.id, username, language: i18n.language },
+          { onConflict: 'id' }
+        );
         navigate('/onboarding');
       }
     } catch (err: unknown) {
