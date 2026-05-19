@@ -5,8 +5,12 @@
 -- =====================================================================
 
 -- Ensure unique constraints exist so ON CONFLICT works
-ALTER TABLE teams   ADD CONSTRAINT IF NOT EXISTS teams_fifa_code_unique   UNIQUE (fifa_code);
-ALTER TABLE matches ADD CONSTRAINT IF NOT EXISTS matches_match_number_unique UNIQUE (match_number);
+DO $$ BEGIN
+  ALTER TABLE teams   ADD CONSTRAINT teams_fifa_code_unique    UNIQUE (fifa_code);
+EXCEPTION WHEN duplicate_table THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE matches ADD CONSTRAINT matches_match_number_unique UNIQUE (match_number);
+EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 
 -- TEAMS
 INSERT INTO teams (name_en, name_ar, flag_emoji, fifa_code, group_name, primary_color, secondary_color) VALUES
