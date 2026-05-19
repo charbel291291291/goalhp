@@ -85,6 +85,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- 6. Update send_friend_request: accept user_code instead of username
+DROP FUNCTION IF EXISTS send_friend_request(text);
 CREATE OR REPLACE FUNCTION send_friend_request(p_user_code TEXT)
 RETURNS JSONB AS $$
 DECLARE
