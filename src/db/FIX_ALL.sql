@@ -40,6 +40,9 @@ DROP POLICY IF EXISTS "Users can read all profiles"          ON public.profiles;
 DROP POLICY IF EXISTS "Profiles are viewable by everyone"    ON public.profiles;
 DROP POLICY IF EXISTS "Users can insert own profile"         ON public.profiles;
 DROP POLICY IF EXISTS "Users can update own profile"         ON public.profiles;
+DROP POLICY IF EXISTS "profiles_select"                      ON public.profiles;
+DROP POLICY IF EXISTS "profiles_insert"                      ON public.profiles;
+DROP POLICY IF EXISTS "profiles_update"                      ON public.profiles;
 
 -- Anyone (including anon for leaderboard previews) can read profiles
 CREATE POLICY "profiles_select"
