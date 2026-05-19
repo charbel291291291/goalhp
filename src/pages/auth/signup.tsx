@@ -41,28 +41,19 @@ export default function Signup() {
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     const err = validateUsername(username);
-    if (err) {
-      setUsernameError(err);
-      return;
-    }
+    if (err) { setUsernameError(err); return; }
     setLoading(true);
     try {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { username } },
+        // username stored in raw_user_meta_data — read by both the DB trigger
+        // (fix_profile_trigger.sql) and the onAuthStateChange handler in useAuth.ts
+        options: { data: { username: username.trim(), language: i18n.language } },
       });
       if (error) throw error;
-      if (data.user) {
-        // Use upsert (not insert) to handle the race where onAuthStateChange
-        // may have already created the profile row with id-only. ignoreDuplicates:false
-        // ensures we always write the username even if the row pre-exists.
-        await supabase.from('profiles').upsert(
-          { id: data.user.id, username, language: i18n.language },
-          { onConflict: 'id' }
-        );
-        navigate('/onboarding');
-      }
+      if (!data.user) throw new Error('Signup failed — please try again');
+      navigate('/onboarding');
     } catch (err: unknown) {
       toast.error(getErrorMessage(err) || 'Signup failed');
     } finally {
