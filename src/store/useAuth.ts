@@ -7,7 +7,7 @@ const INIT_TIMEOUT = 8000;
 
 // Explicit column list — avoids pulling unexpected columns into client state
 const PROFILE_COLUMNS =
-  'id, username, full_name, avatar_url, favorite_team_id, country, region, language, role, points, xp, level, streak, created_at, updated_at';
+  'id, username, user_code, full_name, avatar_url, favorite_team_id, country, region, language, role, points, xp, level, streak, created_at, updated_at';
 
 // Module-level guard so init() is safe to call more than once (React StrictMode)
 let _initStarted = false;

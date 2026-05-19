@@ -190,6 +190,19 @@ export default function ProfileIndex() {
                 <p className="text-[10px] text-white/30">
                   {lang === 'ar' ? 'عضو منذ' : 'Since'} {profile?.created_at ? new Date(profile.created_at).toLocaleDateString() : '—'}
                 </p>
+                {profile?.user_code && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(profile.user_code!);
+                      toast.success(lang === 'ar' ? 'تم نسخ الـ ID!' : 'ID copied!');
+                    }}
+                    className="mt-1 flex items-center gap-1 group"
+                  >
+                    <span className="text-[11px] text-electric font-mono font-bold">#{profile.user_code}</span>
+                    <span className="text-[9px] text-white/20 group-hover:text-white/50 transition-colors">⧉</span>
+                  </button>
+                )}
               </div>
             </div>
 

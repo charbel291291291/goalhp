@@ -84,7 +84,7 @@ export default function FriendsPage() {
   const handleSearch = (q: string) => {
     setSearchQuery(q);
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-    if (!q.trim()) { setSearchResults([]); return; }
+    if (q.length < 6) { setSearchResults([]); return; }
     searchDebounceRef.current = setTimeout(async () => {
       setSearching(true);
       const results = await friendsHook.searchUsers(q);
@@ -205,20 +205,34 @@ export default function FriendsPage() {
 
   const renderSearch = () => (
     <div>
-      <div className="relative mb-4">
-        <input
-          value={searchQuery}
-          onChange={e => handleSearch(e.target.value)}
-          placeholder={lang === 'ar' ? 'ابحث باسم المستخدم...' : 'Search by username...'}
-          className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-4 py-3 text-sm text-white placeholder-white/30 focus:outline-none focus:border-electric transition-all"
-        />
-        {searching && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-lg animate-football-spin">⚽</span>}
+      <div className="mb-4">
+        <p className="text-[11px] text-white/40 mb-2">
+          {lang === 'ar' ? 'أدخل الـ ID المكون من 6 أرقام' : 'Enter the 6-digit Player ID'}
+        </p>
+        <div className="relative">
+          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-electric font-bold text-sm">#</span>
+          <input
+            value={searchQuery}
+            onChange={e => {
+              const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+              handleSearch(val);
+            }}
+            inputMode="numeric"
+            maxLength={6}
+            placeholder="000000"
+            className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl pl-8 pr-4 py-3 text-sm text-white placeholder-white/20 focus:outline-none focus:border-electric transition-all tracking-widest font-mono"
+          />
+          {searching && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-lg animate-football-spin">⚽</span>}
+        </div>
       </div>
-      {searchResults.length === 0 && searchQuery.trim() && !searching && (
+
+      {searchResults.length === 0 && searchQuery.length === 6 && !searching && (
         <div className="text-center py-8">
-          <p className="text-white/30 text-sm">{lang === 'ar' ? 'لا يوجد مستخدمين' : 'No users found'}</p>
+          <div className="text-3xl mb-2">🔍</div>
+          <p className="text-white/30 text-sm">{lang === 'ar' ? 'لا يوجد لاعب بهذا الـ ID' : 'No player found with this ID'}</p>
         </div>
       )}
+
       <div className="space-y-2">
         {searchResults.map((user) => (
           <div key={user.id} className="stadium-card flex items-center gap-3 p-3">
@@ -227,15 +241,11 @@ export default function FriendsPage() {
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-sm font-semibold truncate">{user.username}</div>
-              <div className="text-[10px] text-white/30">
-                {user.status === 'pending' ? (lang === 'ar' ? 'في الانتظار' : 'Pending') :
-                 user.status === 'accepted' ? (lang === 'ar' ? 'صديق' : 'Friend') :
-                 (lang === 'ar' ? 'إضافة' : 'Add')}
-              </div>
+              <div className="text-[10px] text-white/40 font-mono">#{user.user_code}</div>
             </div>
             {user.status === 'none' && (
               <button
-                onClick={() => friendsHook.sendFriendRequest(user.username)}
+                onClick={() => friendsHook.sendFriendRequest(user.user_code || '')}
                 className="px-3 py-1.5 rounded-lg bg-electric/20 text-electric-light text-xs font-semibold hover:bg-electric/30 transition-all"
               >
                 + {lang === 'ar' ? 'إضافة' : 'Add'}

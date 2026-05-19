@@ -1,6 +1,7 @@
 export interface Profile {
   id: string;
   username: string;
+  user_code?: string;
   full_name?: string;
   avatar_url?: string;
   favorite_team_id?: string;

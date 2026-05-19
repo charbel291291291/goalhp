@@ -11,6 +11,7 @@ export interface FriendUser {
 
 export interface FriendWithStatus extends FriendUser {
   status: string;
+  user_code?: string;
 }
 
 export interface FriendRequest {
@@ -77,8 +78,8 @@ export function useFriends() {
     return data || [];
   }, []);
 
-  const sendFriendRequest = useCallback(async (username: string) => {
-    const { data } = await supabase.rpc('send_friend_request', { p_username: username });
+  const sendFriendRequest = useCallback(async (userCode: string) => {
+    const { data } = await supabase.rpc('send_friend_request', { p_user_code: userCode });
     if (data?.error) { toast.error(data.error); return false; }
     toast.success('Friend request sent!');
     load();
