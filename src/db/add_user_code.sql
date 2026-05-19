@@ -58,6 +58,7 @@ CREATE TRIGGER trg_assign_user_code
   FOR EACH ROW EXECUTE FUNCTION assign_user_code();
 
 -- 5. Update search_users: exact match on user_code
+DROP FUNCTION IF EXISTS search_users(text);
 CREATE OR REPLACE FUNCTION search_users(p_query TEXT)
 RETURNS TABLE(id UUID, username TEXT, avatar_url TEXT, status TEXT, user_code TEXT) AS $$
 DECLARE v_user UUID := auth.uid();
