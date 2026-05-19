@@ -71,17 +71,7 @@ export default function ProfileIndex() {
 
   useStreak();
 
-  // Self-healing: if profile loaded but username is missing (signup race or stale data),
-  // auto-open the editor so the user can set it directly. No more "Player" forever.
-  useEffect(() => {
-    if (!profile) return;
-    const u = (profile.username || '').trim();
-    if (!u || u.toLowerCase() === 'player') {
-      setUsername('');
-      setUsernameError('');
-      setEditingUsername(true);
-    }
-  }, [profile?.id, profile?.username]);
+  const usernameMissing = !profile?.username || profile.username.toLowerCase() === 'player';
 
   const userTeam = allTeams.find((t) => t.fifa_code === profile?.favorite_team_id);
 
@@ -95,7 +85,11 @@ export default function ProfileIndex() {
     : 100;
 
   const handleSignOut = async () => {
-    await signOut();
+    try {
+      await signOut();
+    } catch {
+      // signOut error — state is already cleared, navigate anyway
+    }
     navigate('/');
   };
 
@@ -155,6 +149,19 @@ export default function ProfileIndex() {
 
   return (
     <div className="pb-8 space-y-4">
+
+      {/* Username missing — tap the ✏️ to set it */}
+      {usernameMissing && !editingUsername && (
+        <button
+          type="button"
+          onClick={() => { setUsername(''); setUsernameError(''); setEditingUsername(true); }}
+          className="w-full flex items-center gap-2 px-4 py-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-sm text-left"
+        >
+          <span>⚠️</span>
+          <span className="flex-1">{lang === 'ar' ? 'لم يتم تعيين اسم مستخدم — اضغط هنا لتعيينه' : 'No username set — tap here to set one'}</span>
+          <span>→</span>
+        </button>
+      )}
 
       {/* ── Hero ── */}
       <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }}>

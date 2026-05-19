@@ -144,11 +144,25 @@ function useRouter() {
   return { path, navigate };
 }
 
+const PUBLIC_PATHS = new Set(['/', '/login', '/signup', '/onboarding']);
+
 function PageContent() {
   const { path, navigate } = useRouter();
   const { profile, user, initialized } = useAuth();
 
   const isAdmin = profile?.role === 'admin';
+
+  // Auth guard: redirect unauthenticated users away from protected pages
+  if (initialized && !user && !PUBLIC_PATHS.has(path) && !path.startsWith('/sponsor') && !path.startsWith('/admin')) {
+    navigate('/');
+    return null;
+  }
+
+  // Already logged in: skip auth pages
+  if (user && (path === '/login' || path === '/signup')) {
+    navigate('/home');
+    return null;
+  }
 
   if (path.startsWith('/admin')) {
     // Wait until auth is fully resolved before making access decisions.
